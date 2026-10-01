@@ -1,19 +1,37 @@
 import streamlit as st
 import requests
 
+# -----------------------------
+# Page configuration
+# -----------------------------
+
 st.set_page_config(
     page_title="Bio API Tester",
     page_icon="🧬",
     layout="wide"
 )
 
+# -----------------------------
+# App title
+# -----------------------------
+
 st.title("🧬 Bio API Tester")
-st.write("Enter a Locus ID to retrieve biological sequence information.")
+st.write(
+    "Enter a Locus ID to retrieve biological sequence information."
+)
+
+# -----------------------------
+# User input
+# -----------------------------
 
 locus_id = st.text_input(
     "Locus ID",
     placeholder="Example: At1g01010"
 )
+
+# -----------------------------
+# NCBI lookup
+# -----------------------------
 
 if locus_id:
 
@@ -25,7 +43,10 @@ if locus_id:
         "retmode": "json"
     }
 
-    response = requests.get(url, params=params)
+    response = requests.get(
+        url,
+        params=params
+    )
 
     if response.status_code == 200:
 
@@ -33,11 +54,26 @@ if locus_id:
 
         ids = data["esearchresult"]["idlist"]
 
-        if len(ids) == 1:
-            gene_id = ids[0]
-            st.success(f"NCBI Gene ID: {gene_id}")
+        # -----------------------------
+        # Exactly one NCBI result
+        # -----------------------------
 
-            summary_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
+        if len(ids) == 1:
+
+            gene_id = ids[0]
+
+            st.success(
+                f"NCBI Gene ID: {gene_id}"
+            )
+
+            # -----------------------------
+            # Get NCBI gene summary
+            # -----------------------------
+
+            summary_url = (
+                "https://eutils.ncbi.nlm.nih.gov/"
+                "entrez/eutils/esummary.fcgi"
+            )
 
             summary_params = {
                 "db": "gene",
@@ -53,38 +89,100 @@ if locus_id:
             if summary_response.status_code == 200:
 
                 summary_data = summary_response.json()
+
                 gene_data = summary_data["result"][gene_id]
+
+                # -----------------------------
+                # Gene information
+                # -----------------------------
 
                 st.subheader("Gene Information")
 
-                st.write("Gene name:", gene_data.get("name"))
+                gene_name = gene_data.get(
+                    "name",
+                    "Not available"
+                )
+
+                description = gene_data.get(
+                    "description",
+                    "Not available"
+                )
+
+                chromosome = gene_data.get(
+                    "chromosome",
+                    "Not available"
+                )
+
+                organism = gene_data.get(
+                    "organism",
+                    {}
+                )
+
+                organism_name = organism.get(
+                    "scientificname",
+                    "Not available"
+                )
+
+                taxonomy_id = (
+                    gene_data.get("taxid")
+                    or gene_data.get("tax_id")
+                    or "Not available"
+                )
+
+                st.write(
+                    "Gene name:",
+                    gene_name
+                )
+
                 st.write(
                     "Description:",
-                    gene_data.get("description")
+                    description
                 )
+
                 st.write(
                     "Organism:",
-                    gene_data.get("organism", {}).get("scientificname")
+                    organism_name
                 )
+
                 st.write(
                     "Chromosome:",
-                    gene_data.get("chromosome")
+                    chromosome
                 )
+
                 st.write(
                     "Taxonomy ID:",
-                    gene_data.get("taxid")
+                    taxonomy_id
                 )
 
             else:
+
                 st.error(
                     "Could not retrieve NCBI gene information."
                 )
 
+        # -----------------------------
+        # No results
+        # -----------------------------
+
         elif len(ids) == 0:
-            st.error("No NCBI Gene record found.")
+
+            st.error(
+                "No NCBI Gene record found for this Locus ID."
+            )
+
+        # -----------------------------
+        # Multiple results
+        # -----------------------------
 
         else:
-            st.warning("Multiple NCBI Gene records found.")
+
+            st.warning(
+                "Multiple NCBI Gene records were found. "
+                "The Locus ID is ambiguous."
+            )
 
     else:
-        st.error("NCBI request failed.")
+
+        st.error(
+            "NCBI request failed."
+        )
