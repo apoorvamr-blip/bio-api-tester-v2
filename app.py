@@ -47,8 +47,6 @@ def ncbi_get(endpoint, params, timeout=30):
     params["tool"] = NCBI_TOOL
     params["email"] = NCBI_EMAIL
 
-    # Small delay to reduce the chance of hitting
-    # NCBI public rate limits
     time.sleep(0.4)
 
     url = f"{NCBI_BASE_URL}/{endpoint}"
@@ -270,7 +268,6 @@ def extract_cds(genbank_record):
     cds_start = None
     cds_end = None
 
-    # Find CDS coordinates
     for line in lines:
 
         if line.startswith("     CDS"):
@@ -290,7 +287,6 @@ def extract_cds(genbank_record):
 
         return None, None, None
 
-    # Find ORIGIN
     origin_index = None
 
     for i, line in enumerate(lines):
@@ -305,7 +301,6 @@ def extract_cds(genbank_record):
 
         return None, None, None
 
-    # Extract nucleotide sequence
     sequence_parts = []
 
     for line in lines[origin_index + 1:]:
@@ -347,7 +342,6 @@ def translate_cds(cds_sequence):
         Seq(cds_sequence).translate()
     )
 
-    # Remove terminal stop symbol
     if protein_sequence.endswith("*"):
 
         protein_sequence = protein_sequence[:-1]
@@ -453,9 +447,31 @@ def get_interpro_annotations(uniprot_id):
 st.title("🧬 Bio API Tester")
 
 st.write(
-    "Enter a Locus ID to retrieve biological "
-    "sequence and annotation information."
+    "Retrieve, analyze, and annotate biological "
+    "sequences using NCBI, UniProt, and InterPro."
 )
+
+st.markdown(
+    """
+    **Workflow**
+
+    `Locus ID`
+    →
+    `NCBI Gene`
+    →
+    `CDS`
+    →
+    `Protein`
+    →
+    `UniProt`
+    →
+    `InterPro`
+    →
+    `Results`
+    """
+)
+
+st.divider()
 
 
 # ============================================================
@@ -1073,6 +1089,8 @@ if locus_id:
             f"HTTP status: {interpro_status}"
         )
 
+        interpro_results = []
+
     else:
 
         interpro_results = interpro_data.get(
@@ -1199,39 +1217,37 @@ if locus_id:
     # INTERPRO
     # --------------------------------------------------------
 
-    if interpro_data is not None:
+    for result in interpro_results:
 
-        for result in interpro_results:
+        metadata = result.get(
+            "metadata",
+            {}
+        )
 
-            metadata = result.get(
-                "metadata",
-                {}
-            )
+        accession = metadata.get(
+            "accession",
+            "Not available"
+        )
 
-            accession = metadata.get(
-                "accession",
-                "Not available"
-            )
+        name = metadata.get(
+            "name",
+            "Not available"
+        )
 
-            name = metadata.get(
-                "name",
-                "Not available"
-            )
+        entry_type = metadata.get(
+            "type",
+            "Not available"
+        )
 
-            entry_type = metadata.get(
-                "type",
-                "Not available"
-            )
-
-            annotation_rows.append(
-                {
-                    "Source": "InterPro",
-                    "Record ID": accession,
-                    "Annotation": name,
-                    "Organism": organism_name,
-                    "Details": entry_type
-                }
-            )
+        annotation_rows.append(
+            {
+                "Source": "InterPro",
+                "Record ID": accession,
+                "Annotation": name,
+                "Organism": organism_name,
+                "Details": entry_type
+            }
+        )
 
 
     # --------------------------------------------------------
@@ -1262,58 +1278,56 @@ if locus_id:
         "8️⃣ Download Results"
     )
 
-    # --------------------------------------------------------
-    # Download Nucleotide FASTA
-    # --------------------------------------------------------
+    col1, col2 = st.columns(2)
 
-    st.download_button(
-        label="⬇️ Download Nucleotide FASTA",
-        data=nucleotide_fasta,
-        file_name=f"{locus_id}_CDS.fasta",
-        mime="text/plain"
-    )
+    with col1:
 
+        st.download_button(
+            label="⬇️ Download Nucleotide FASTA",
+            data=nucleotide_fasta,
+            file_name=f"{locus_id}_CDS.fasta",
+            mime="text/plain",
+            use_container_width=True
+        )
 
-    # --------------------------------------------------------
-    # Download Protein FASTA
-    # --------------------------------------------------------
+    with col2:
 
-    st.download_button(
-        label="⬇️ Download Protein FASTA",
-        data=protein_fasta,
-        file_name=f"{locus_id}_protein.fasta",
-        mime="text/plain"
-    )
+        st.download_button(
+            label="⬇️ Download Protein FASTA",
+            data=protein_fasta,
+            file_name=f"{locus_id}_protein.fasta",
+            mime="text/plain",
+            use_container_width=True
+        )
 
-
-    # --------------------------------------------------------
-    # Download Annotation CSV
-    # --------------------------------------------------------
 
     annotation_csv = annotation_table.to_csv(
         index=False
     )
-
-    st.download_button(
-        label="⬇️ Download Annotation CSV",
-        data=annotation_csv,
-        file_name="annotation_results.csv",
-        mime="text/csv"
-    )
-
-
-    # --------------------------------------------------------
-    # Download Annotation JSON
-    # --------------------------------------------------------
 
     annotation_json = annotation_table.to_json(
         orient="records",
         indent=2
     )
 
-    st.download_button(
-        label="⬇️ Download Annotation JSON",
-        data=annotation_json,
-        file_name="annotation_results.json",
-        mime="application/json"
-    )
+    col3, col4 = st.columns(2)
+
+    with col3:
+
+        st.download_button(
+            label="⬇️ Download Annotation CSV",
+            data=annotation_csv,
+            file_name="annotation_results.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+
+    with col4:
+
+        st.download_button(
+            label="⬇️ Download Annotation JSON",
+            data=annotation_json,
+            file_name="annotation_results.json",
+            mime="application/json",
+            use_container_width=True
+        )
