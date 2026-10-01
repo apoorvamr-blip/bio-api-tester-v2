@@ -1,6 +1,7 @@
 import time
 import requests
 import streamlit as st
+from Bio.Seq import Seq
 
 
 # -----------------------------
@@ -329,6 +330,24 @@ def extract_cds(genbank_record):
 
 
 # -----------------------------
+# Translate CDS
+# -----------------------------
+
+def translate_cds(cds_sequence):
+
+    protein_sequence = str(
+        Seq(cds_sequence).translate()
+    )
+
+    # Remove terminal stop symbol
+    if protein_sequence.endswith("*"):
+
+        protein_sequence = protein_sequence[:-1]
+
+    return protein_sequence
+
+
+# -----------------------------
 # Header
 # -----------------------------
 
@@ -527,7 +546,6 @@ if locus_id:
             tuple(nuccore_ids)
         )
 
-    # Find NM_ RefSeq mRNA records
     refseq_candidates = [
         record
         for record in summaries
@@ -691,5 +709,53 @@ if locus_id:
 
     st.code(
         nucleotide_fasta,
+        language="text"
+    )
+
+    # -----------------------------
+    # Step 8: Translate CDS
+    # -----------------------------
+
+    st.subheader(
+        "4️⃣ Protein Sequence"
+    )
+
+    if len(cds_sequence) % 3 != 0:
+
+        st.error(
+            "CDS length is not divisible by 3. "
+            "Translation cannot be performed safely."
+        )
+
+        st.stop()
+
+    protein_sequence = translate_cds(
+        cds_sequence
+    )
+
+    st.success(
+        "CDS translated successfully."
+    )
+
+    st.write(
+        f"**Protein length:** "
+        f"{len(protein_sequence)} aa"
+    )
+
+    # -----------------------------
+    # Protein FASTA
+    # -----------------------------
+
+    protein_fasta = (
+        f">{locus_id}_protein\n"
+        f"{protein_sequence}"
+    )
+
+    st.write(
+        "**Protein FASTA**"
+    )
+
+    st.code(
+        protein_fasta,
         language="text"
     )
