@@ -1,12 +1,11 @@
 import time
-
 import requests
 import streamlit as st
 
 
-# ==================================================
-# PAGE CONFIGURATION
-# ==================================================
+# -----------------------------
+# Page configuration
+# -----------------------------
 
 st.set_page_config(
     page_title="Bio API Tester",
@@ -15,37 +14,30 @@ st.set_page_config(
 )
 
 
-# ==================================================
-# NCBI CONFIGURATION
-# ==================================================
+# -----------------------------
+# NCBI configuration
+# -----------------------------
 
-NCBI_BASE_URL = (
-    "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
-)
+NCBI_BASE_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
-# Identify your application to NCBI.
-# Replace the email with your own email before deployment.
+# Replace this with your real email before deployment.
 NCBI_EMAIL = "your_email@example.com"
 
 NCBI_TOOL = "BioAPITester"
 
 
-# ==================================================
-# HELPER FUNCTION
-# ==================================================
+# -----------------------------
+# NCBI request helper
+# -----------------------------
 
 def ncbi_get(endpoint, params, timeout=30):
-    """
-    Send a request to NCBI E-utilities.
-
-    Returns the response object or raises a
-    user-friendly Streamlit error.
-    """
 
     params = params.copy()
-
     params["tool"] = NCBI_TOOL
     params["email"] = NCBI_EMAIL
+
+    # Stay below NCBI's public request-rate limit.
+    time.sleep(0.4)
 
     url = f"{NCBI_BASE_URL}/{endpoint}"
 
@@ -55,38 +47,26 @@ def ncbi_get(endpoint, params, timeout=30):
         timeout=timeout
     )
 
-    # --------------------------------------------------
-    # Rate limit
-    # --------------------------------------------------
-
     if response.status_code == 429:
-
         st.error(
             "NCBI rate limit reached. "
             "Please wait a few seconds and try again."
         )
-
         st.stop()
 
-    # --------------------------------------------------
-    # Other HTTP errors
-    # --------------------------------------------------
-
     if response.status_code != 200:
-
         st.error(
-            f"NCBI request failed "
-            f"(HTTP {response.status_code})."
+            f"NCBI request failed. HTTP status: "
+            f"{response.status_code}"
         )
-
         st.stop()
 
     return response
 
 
-# ==================================================
-# STEP 1: NCBI GENE SEARCH
-# ==================================================
+# -----------------------------
+# NCBI Gene search
+# -----------------------------
 
 @st.cache_data(ttl=3600)
 def search_gene(locus_id):
@@ -99,26 +79,17 @@ def search_gene(locus_id):
 
     response = ncbi_get(
         "esearch.fcgi",
-        params,
-        timeout=20
+        params
     )
 
-    try:
-        data = response.json()
-    except ValueError:
+    data = response.json()
 
-        st.error(
-            "NCBI Gene search returned an unexpected response."
-        )
-
-        st.stop()
-
-    return data
+    return data["esearchresult"]["idlist"]
 
 
-# ==================================================
-# STEP 2: GENE SUMMARY
-# ==================================================
+# -----------------------------
+# NCBI Gene summary
+# -----------------------------
 
 @st.cache_data(ttl=3600)
 def get_gene_summary(gene_id):
@@ -131,26 +102,17 @@ def get_gene_summary(gene_id):
 
     response = ncbi_get(
         "esummary.fcgi",
-        params,
-        timeout=20
+        params
     )
 
-    try:
-        data = response.json()
-    except ValueError:
+    data = response.json()
 
-        st.error(
-            "NCBI Gene summary returned an unexpected response."
-        )
-
-        st.stop()
-
-    return data
+    return data["result"][gene_id]
 
 
-# ==================================================
-# STEP 3: GENE → NUCLEOTIDE LINKS
-# ==================================================
+# -----------------------------
+# Gene → nucleotide links
+# -----------------------------
 
 @st.cache_data(ttl=3600)
 def get_nucleotide_links(gene_id):
@@ -164,57 +126,119 @@ def get_nucleotide_links(gene_id):
 
     response = ncbi_get(
         "elink.fcgi",
-        params,
-        timeout=30
+        params
     )
 
+    data = response.json()
+
+    nucleotide_ids = []
+
     try:
-        data = response.json()
-    except ValueError:
 
-        st.error(
-            "NCBI ELink returned an unexpected response."
-        )
+        linksets = data["linksets"]
 
-        st.stop()
+        for linkset in linksets:
 
-    return data
+            for link in linkset.get("linksetdbs", []):
+
+                if link.get("dbto") == "nuccore":
+
+                    nucleotide_ids.extend(
+                        link.get("links", [])
+                    )
+
+    except (KeyError, TypeError):
+        pass
+
+    return nucleotide_ids
 
 
-# ==================================================
-# STEP 4: FETCH GENBANK RECORDS
-# ==================================================
+# -----------------------------
+# Lightweight nucleotide summaries
+# -----------------------------
 
 @st.cache_data(ttl=3600)
-def fetch_genbank_records(nuccore_ids):
+def get_nucleotide_summaries(nuccore_ids):
 
     params = {
         "db": "nuccore",
         "id": ",".join(nuccore_ids),
+        "retmode": "json"
+    }
+
+    response = ncbi_get(
+        "esummary.fcgi",
+        params
+    )
+
+    data = response.json()
+
+    result = data.get("result", {})
+
+    summaries = []
+
+    for uid in result.get("uids", []):
+
+        item = result.get(uid, {})
+
+        accession = (
+            item.get("accessionversion")
+            or item.get("caption")
+            or ""
+        )
+
+        title = item.get("title", "")
+
+        length = item.get("slen")
+
+        summaries.append(
+            {
+                "uid": uid,
+                "accession": accession,
+                "title": title,
+                "length": length
+            }
+        )
+
+    return summaries
+
+
+# -----------------------------
+# Fetch ONE GenBank record
+# -----------------------------
+
+@st.cache_data(ttl=3600)
+def fetch_one_genbank(nuccore_id):
+
+    params = {
+        "db": "nuccore",
+        "id": nuccore_id,
         "rettype": "gb",
         "retmode": "text"
     }
 
     response = ncbi_get(
         "efetch.fcgi",
-        params,
-        timeout=60
+        params
     )
 
     return response.text
 
 
-# ==================================================
-# MAIN APPLICATION
-# ==================================================
+# -----------------------------
+# Header
+# -----------------------------
 
 st.title("🧬 Bio API Tester")
 
 st.write(
-    "Enter a Locus ID to retrieve biological "
-    "sequence information."
+    "Enter a Locus ID to retrieve biological sequence information."
 )
 
+
+# -----------------------------
+# User input
+# -----------------------------
 
 locus_id = st.text_input(
     "Locus ID",
@@ -222,602 +246,269 @@ locus_id = st.text_input(
 )
 
 
-if locus_id:
+# -----------------------------
+# Main workflow
+# -----------------------------
 
-    # Normalize input
+if locus_id:
 
     locus_id = locus_id.strip()
 
+    if not locus_id:
+        st.warning("Please enter a Locus ID.")
 
-    # ==================================================
-    # GENE SEARCH
-    # ==================================================
+    else:
 
-    with st.spinner(
-        "Searching NCBI Gene database..."
-    ):
+        # -----------------------------
+        # Step 1: Find gene
+        # -----------------------------
 
-        search_data = search_gene(
-            locus_id
+        st.subheader("1️⃣ Gene Search")
+
+        with st.spinner("Searching NCBI Gene..."):
+
+            gene_ids = search_gene(locus_id)
+
+        if not gene_ids:
+
+            st.error(
+                f"No NCBI Gene record found for {locus_id}."
+            )
+
+            st.stop()
+
+        if len(gene_ids) > 1:
+
+            st.warning(
+                "Multiple NCBI Gene records were found. "
+                "Please select one."
+            )
+
+            selected_gene_id = st.selectbox(
+                "Select Gene ID",
+                gene_ids
+            )
+
+        else:
+
+            selected_gene_id = gene_ids[0]
+
+        # -----------------------------
+        # Step 2: Gene information
+        # -----------------------------
+
+        with st.spinner("Retrieving gene information..."):
+
+            gene_data = get_gene_summary(
+                selected_gene_id
+            )
+
+        organism = gene_data.get(
+            "organism",
+            {}
         )
 
-
-    gene_ids = (
-        search_data
-        .get("esearchresult", {})
-        .get("idlist", [])
-    )
-
-
-    if not gene_ids:
-
-        st.error(
-            f"No NCBI Gene record found for `{locus_id}`."
+        gene_name = gene_data.get(
+            "name",
+            "Not available"
         )
 
-        st.stop()
-
-
-    # --------------------------------------------------
-    # Ambiguous gene
-    # --------------------------------------------------
-
-    if len(gene_ids) > 1:
-
-        st.warning(
-            "Multiple NCBI Gene records were found. "
-            "We will handle candidate selection in a "
-            "later step."
+        description = gene_data.get(
+            "description",
+            "Not available"
         )
 
-        st.write(gene_ids)
-
-        st.stop()
-
-
-    gene_id = gene_ids[0]
-
-
-    # ==================================================
-    # GENE SUMMARY
-    # ==================================================
-
-    with st.spinner(
-        "Retrieving gene information..."
-    ):
-
-        summary_data = get_gene_summary(
-            gene_id
+        organism_name = organism.get(
+            "scientificname",
+            "Not available"
         )
 
-
-    gene_data = (
-        summary_data
-        .get("result", {})
-        .get(gene_id)
-    )
-
-
-    if not gene_data:
-
-        st.error(
-            "NCBI Gene summary was empty."
+        taxonomy_id = organism.get(
+            "taxid",
+            "Not available"
         )
 
-        st.stop()
-
-
-    # ==================================================
-    # EXTRACT GENE INFORMATION
-    # ==================================================
-
-    organism = gene_data.get(
-        "organism",
-        {}
-    )
-
-
-    gene_name = gene_data.get(
-        "name",
-        "Not available"
-    )
-
-
-    description = gene_data.get(
-        "description",
-        "Not available"
-    )
-
-
-    organism_name = organism.get(
-        "scientificname",
-        "Not available"
-    )
-
-
-    taxonomy_id = organism.get(
-        "taxid",
-        "Not available"
-    )
-
-
-    chromosome = gene_data.get(
-        "chromosome",
-        "Not available"
-    )
-
-
-    # ==================================================
-    # GENE INFORMATION
-    # ==================================================
-
-    st.subheader("Gene Information")
-
-
-    col1, col2 = st.columns(2)
-
-
-    with col1:
-
-        st.write(
-            f"**Gene name:** {gene_name}"
+        chromosome = gene_data.get(
+            "chromosome",
+            "Not available"
         )
+
+        st.subheader("Gene Information")
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.metric(
+                "Gene",
+                gene_name
+            )
+
+        with col2:
+            st.metric(
+                "Organism",
+                organism_name
+            )
+
+        with col3:
+            st.metric(
+                "Taxonomy ID",
+                taxonomy_id
+            )
 
         st.write(
             f"**Description:** {description}"
         )
 
         st.write(
-            f"**Organism:** {organism_name}"
-        )
-
-
-    with col2:
-
-        st.write(
             f"**Chromosome:** {chromosome}"
         )
 
         st.write(
-            f"**Taxonomy ID:** `{taxonomy_id}`"
+            f"**NCBI Gene ID:** {selected_gene_id}"
         )
 
-        st.write(
-            f"**NCBI Gene ID:** `{gene_id}`"
-        )
+        # -----------------------------
+        # Step 3: Linked nucleotide records
+        # -----------------------------
 
+        st.subheader("2️⃣ Nucleotide Records")
 
-    # ==================================================
-    # GENE → NUCLEOTIDE
-    # ==================================================
-
-    st.subheader("Nucleotide Records")
-
-
-    with st.spinner(
-        "Finding linked nucleotide records..."
-    ):
-
-        elink_data = get_nucleotide_links(
-            gene_id
-        )
-
-
-    linksets = elink_data.get(
-        "linksets",
-        []
-    )
-
-
-    if not linksets:
-
-        st.error(
-            "No nucleotide records were linked "
-            "to this gene."
-        )
-
-        st.stop()
-
-
-    linksetdbs = linksets[0].get(
-        "linksetdbs",
-        []
-    )
-
-
-    nuccore_ids = []
-
-
-    for linkset in linksetdbs:
-
-        if linkset.get("dbto") == "nuccore":
-
-            nuccore_ids.extend(
-                linkset.get("links", [])
-            )
-
-
-    # Remove duplicates
-
-    nuccore_ids = list(
-        dict.fromkeys(nuccore_ids)
-    )
-
-
-    if not nuccore_ids:
-
-        st.error(
-            "No nucleotide records were found."
-        )
-
-        st.stop()
-
-
-    st.write(
-        f"Found {len(nuccore_ids)} "
-        f"linked nucleotide records."
-    )
-
-
-    # ==================================================
-    # SMALL DELAY BEFORE EFETCH
-    # ==================================================
-
-    # Helps avoid immediately hitting NCBI's
-    # request-rate limit.
-
-    time.sleep(0.5)
-
-
-    # ==================================================
-    # FETCH GENBANK
-    # ==================================================
-
-    with st.spinner(
-        "Retrieving linked GenBank records..."
-    ):
-
-        genbank_text = fetch_genbank_records(
-            nuccore_ids
-        )
-
-
-    if not genbank_text.strip():
-
-        st.error(
-            "NCBI returned an empty GenBank response."
-        )
-
-        st.stop()
-
-
-    # ==================================================
-    # SPLIT GENBANK RECORDS
-    # ==================================================
-
-    records = genbank_text.split(
-        "\n//"
-    )
-
-
-    refseq_candidates = []
-
-
-    for record in records:
-
-        if "LOCUS" not in record:
-            continue
-
-
-        accession = None
-        version = None
-        definition = None
-
-
-        for line in record.splitlines():
-
-            # ------------------------------------------
-            # ACCESSION
-            # ------------------------------------------
-
-            if line.startswith(
-                "ACCESSION"
-            ):
-
-                parts = line.split()
-
-                if len(parts) >= 2:
-
-                    accession = parts[1]
-
-
-            # ------------------------------------------
-            # VERSION
-            # ------------------------------------------
-
-            elif line.startswith(
-                "VERSION"
-            ):
-
-                parts = line.split()
-
-                if len(parts) >= 2:
-
-                    version = parts[1]
-
-
-            # ------------------------------------------
-            # DEFINITION
-            # ------------------------------------------
-
-            elif line.startswith(
-                "DEFINITION"
-            ):
-
-                definition = line.replace(
-                    "DEFINITION",
-                    "",
-                    1
-                ).strip()
-
-
-        # ----------------------------------------------
-        # RefSeq mRNA
-        # ----------------------------------------------
-
-        if (
-            accession
-            and accession.startswith("NM_")
+        with st.spinner(
+            "Finding linked nucleotide records..."
         ):
 
-            refseq_candidates.append(
-                {
-                    "accession": accession,
-                    "version": version,
-                    "definition": definition,
-                    "record": record
-                }
+            nuccore_ids = get_nucleotide_links(
+                selected_gene_id
             )
 
+        if not nuccore_ids:
 
-    # ==================================================
-    # REFSEQ CANDIDATES
-    # ==================================================
+            st.warning(
+                "No nucleotide records were linked "
+                "to this Gene record."
+            )
 
-    st.subheader(
-        "RefSeq mRNA Candidates"
-    )
-
-
-    if not refseq_candidates:
-
-        st.warning(
-            "No RefSeq mRNA records were found "
-            "among the linked nucleotide records."
-        )
-
-        st.stop()
-
-
-    st.success(
-        f"Found {len(refseq_candidates)} "
-        f"RefSeq mRNA candidate(s)."
-    )
-
-
-    # ==================================================
-    # CANDIDATE SELECTION
-    # ==================================================
-
-    if len(refseq_candidates) > 1:
-
-        candidate_names = []
-
-        for candidate in refseq_candidates:
-
-            if candidate["version"]:
-
-                candidate_names.append(
-                    candidate["version"]
-                )
-
-            else:
-
-                candidate_names.append(
-                    candidate["accession"]
-                )
-
-
-        selected_name = st.selectbox(
-            "Select a RefSeq mRNA:",
-            candidate_names
-        )
-
-
-        selected_candidate = next(
-            candidate
-            for candidate in refseq_candidates
-            if (
-                candidate["version"]
-                or candidate["accession"]
-            ) == selected_name
-        )
-
-    else:
-
-        selected_candidate = (
-            refseq_candidates[0]
-        )
-
-
-    # ==================================================
-    # DISPLAY SELECTED REFSEQ
-    # ==================================================
-
-    selected_accession = (
-        selected_candidate["accession"]
-    )
-
-
-    selected_version = (
-        selected_candidate["version"]
-    )
-
-
-    selected_genbank = (
-        selected_candidate["record"]
-    )
-
-
-    st.subheader(
-        "Selected RefSeq mRNA"
-    )
-
-
-    if selected_version:
+            st.stop()
 
         st.write(
-            f"**Accession:** `{selected_version}`"
+            f"Found {len(nuccore_ids)} linked nucleotide records."
         )
 
-    else:
+        # -----------------------------
+        # Step 4: Lightweight summaries
+        # -----------------------------
 
-        st.write(
-            f"**Accession:** `{selected_accession}`"
-        )
-
-
-    if selected_candidate["definition"]:
-
-        st.write(
-            selected_candidate["definition"]
-        )
-
-
-    # ==================================================
-    # GENBANK RECORD
-    # ==================================================
-
-    with st.expander(
-        "View GenBank record"
-    ):
-
-        st.code(
-            selected_genbank
-        )
-
-
-    # ==================================================
-    # FIND CDS
-    # ==================================================
-
-    cds_start = None
-    cds_end = None
-
-
-    for line in selected_genbank.splitlines():
-
-        stripped_line = line.strip()
-
-
-        if stripped_line.startswith(
-            "CDS"
+        with st.spinner(
+            "Identifying the RefSeq transcript..."
         ):
 
-            parts = stripped_line.split()
+            summaries = get_nucleotide_summaries(
+                tuple(nuccore_ids)
+            )
 
+        # Find NM_ RefSeq mRNA records
+        refseq_candidates = [
+            record
+            for record in summaries
+            if record["accession"].startswith("NM_")
+        ]
 
-            if len(parts) >= 2:
+        if not refseq_candidates:
 
-                location = parts[1]
+            st.warning(
+                "No RefSeq NM_ mRNA record was identified."
+            )
 
+            st.write("Available nucleotide records:")
 
-                if ".." in location:
+            for record in summaries:
 
-                    start, end = location.split(
-                        "..",
-                        1
-                    )
+                st.write(
+                    f"- {record['accession']} — "
+                    f"{record['title']}"
+                )
 
+            st.stop()
 
-                    start = start.replace(
-                        "<",
-                        ""
-                    )
+        # -----------------------------
+        # Step 5: Select transcript
+        # -----------------------------
 
+        if len(refseq_candidates) == 1:
 
-                    end = end.replace(
-                        ">",
-                        ""
-                    )
+            selected_record = refseq_candidates[0]
 
+        else:
 
-                    if (
-                        start.isdigit()
-                        and end.isdigit()
-                    ):
+            st.warning(
+                "Multiple RefSeq mRNA records were found."
+            )
 
-                        cds_start = int(start)
-                        cds_end = int(end)
+            options = [
+                record["accession"]
+                for record in refseq_candidates
+            ]
 
-                        break
+            selected_accession = st.selectbox(
+                "Select RefSeq transcript",
+                options
+            )
 
+            selected_record = next(
+                record
+                for record in refseq_candidates
+                if record["accession"] == selected_accession
+            )
 
-    # ==================================================
-    # CDS RESULT
-    # ==================================================
-
-    if (
-        cds_start is None
-        or cds_end is None
-    ):
-
-        st.error(
-            "Could not find a CDS feature "
-            "in the selected GenBank record."
+        st.write(
+            f"**Selected transcript:** "
+            f"{selected_record['accession']}"
         )
 
-        st.stop()
-
-
-    cds_length = (
-        cds_end - cds_start + 1
-    )
-
-
-    st.subheader(
-        "Coding Sequence (CDS)"
-    )
-
-
-    st.success(
-        f"CDS detected: "
-        f"{cds_start}..{cds_end}"
-    )
-
-
-    col1, col2, col3 = st.columns(3)
-
-
-    with col1:
-
-        st.metric(
-            "CDS start",
-            cds_start
+        st.write(
+            f"**Transcript length:** "
+            f"{selected_record['length']} nt"
         )
 
-
-    with col2:
-
-        st.metric(
-            "CDS end",
-            cds_end
+        st.write(
+            f"**NCBI nucleotide ID:** "
+            f"{selected_record['uid']}"
         )
 
+        # -----------------------------
+        # Step 6: Fetch only selected record
+        # -----------------------------
 
-    with col3:
+        with st.spinner(
+            f"Retrieving {selected_record['accession']}..."
+        ):
 
-        st.metric(
-            "CDS length",
-            f"{cds_length} nt"
+            genbank_record = fetch_one_genbank(
+                selected_record["uid"]
+            )
+
+        if not genbank_record.strip():
+
+            st.error(
+                "The selected GenBank record was empty."
+            )
+
+            st.stop()
+
+        st.success(
+            f"Successfully retrieved "
+            f"{selected_record['accession']}."
         )
+
+        # -----------------------------
+        # Show GenBank record
+        # -----------------------------
+
+        with st.expander(
+            "View GenBank record"
+        ):
+
+            st.code(
+                genbank_record,
+                language="text"
+            )
