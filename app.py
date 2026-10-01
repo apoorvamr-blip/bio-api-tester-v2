@@ -157,7 +157,7 @@ if locus_id:
                 # Link Gene to nucleotide records
                 # -----------------------------
 
-                st.subheader("Linked Nucleotide Records")
+                st.subheader("Nucleotide Records")
 
                 link_url = (
                     "https://eutils.ncbi.nlm.nih.gov/"
@@ -193,11 +193,112 @@ if locus_id:
                             "linked nucleotide records."
                         )
 
-                        st.write(
-                            "Nucleotide IDs:"
+                        # -----------------------------
+                        # Get nucleotide summaries
+                        # -----------------------------
+
+                        nucleotide_summary_url = (
+                            "https://eutils.ncbi.nlm.nih.gov/"
+                            "entrez/eutils/esummary.fcgi"
                         )
 
-                        st.write(nucleotide_ids)
+                        nucleotide_summary_params = {
+                            "db": "nuccore",
+                            "id": ",".join(nucleotide_ids),
+                            "retmode": "json"
+                        }
+
+                        nucleotide_response = requests.get(
+                            nucleotide_summary_url,
+                            params=nucleotide_summary_params
+                        )
+
+                        if nucleotide_response.status_code == 200:
+
+                            nucleotide_data = (
+                                nucleotide_response.json()
+                            )
+
+                            nucleotide_results = (
+                                nucleotide_data.get(
+                                    "result",
+                                    {}
+                                )
+                            )
+
+                            # -----------------------------
+                            # Find RefSeq mRNA records
+                            # -----------------------------
+
+                            refseq_records = []
+
+                            for nucleotide_id in nucleotide_ids:
+
+                                record = nucleotide_results.get(
+                                    nucleotide_id,
+                                    {}
+                                )
+
+                                accession = record.get(
+                                    "accessionversion",
+                                    ""
+                                )
+
+                                title = record.get(
+                                    "title",
+                                    ""
+                                )
+
+                                if accession.startswith(
+                                    "NM_"
+                                ):
+
+                                    refseq_records.append(
+                                        {
+                                            "id": nucleotide_id,
+                                            "accession": accession,
+                                            "title": title
+                                        }
+                                    )
+
+                            # -----------------------------
+                            # Display RefSeq records
+                            # -----------------------------
+
+                            if refseq_records:
+
+                                st.subheader(
+                                    "RefSeq mRNA Candidates"
+                                )
+
+                                for record in refseq_records:
+
+                                    st.write(
+                                        f"**{record['accession']}**"
+                                    )
+
+                                    st.write(
+                                        record["title"]
+                                    )
+
+                                    st.write(
+                                        f"NCBI nucleotide ID: "
+                                        f"{record['id']}"
+                                    )
+
+                            else:
+
+                                st.warning(
+                                    "No RefSeq mRNA records "
+                                    "were identified."
+                                )
+
+                        else:
+
+                            st.error(
+                                "Could not retrieve nucleotide "
+                                "record summaries."
+                            )
 
                     except (
                         KeyError,
