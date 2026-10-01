@@ -1,5 +1,6 @@
 import streamlit as st
 import requests
+import re
 
 # -----------------------------
 # Page configuration
@@ -194,52 +195,83 @@ if locus_id:
                         )
 
                         # -----------------------------
-                        # Find RefSeq mRNA records
+                        # Inspect GenBank records
                         # -----------------------------
 
                         refseq_records = []
 
-                        nucleotide_summary_url = (
+                        efetch_url = (
                             "https://eutils.ncbi.nlm.nih.gov/"
-                            "entrez/eutils/esummary.fcgi"
+                            "entrez/eutils/efetch.fcgi"
                         )
 
-                        # Retrieve each nucleotide record separately
                         for nucleotide_id in nucleotide_ids:
 
-                            nucleotide_params = {
+                            efetch_params = {
                                 "db": "nuccore",
                                 "id": nucleotide_id,
-                                "retmode": "json"
+                                "rettype": "gb",
+                                "retmode": "text"
                             }
 
                             nucleotide_response = requests.get(
-                                nucleotide_summary_url,
-                                params=nucleotide_params
+                                efetch_url,
+                                params=efetch_params
                             )
 
                             if nucleotide_response.status_code != 200:
                                 continue
 
-                            nucleotide_data = (
-                                nucleotide_response.json()
+                            genbank_text = nucleotide_response.text
+
+                            # -----------------------------
+                            # Find accession
+                            # -----------------------------
+
+                            accession_match = re.search(
+                                r"ACCESSION\s+(\S+)",
+                                genbank_text
                             )
 
-                            nucleotide_result = (
-                                nucleotide_data
-                                .get("result", {})
-                                .get(nucleotide_id, {})
+                            if not accession_match:
+                                continue
+
+                            accession = (
+                                accession_match.group(1)
                             )
 
-                            accession = nucleotide_result.get(
-                                "accessionversion",
-                                ""
+                            # -----------------------------
+                            # Find version
+                            # -----------------------------
+
+                            version_match = re.search(
+                                r"VERSION\s+(\S+)",
+                                genbank_text
                             )
 
-                            title = nucleotide_result.get(
-                                "title",
-                                ""
+                            if version_match:
+                                accession_version = (
+                                    version_match.group(1)
+                                )
+                            else:
+                                accession_version = accession
+
+                            # -----------------------------
+                            # Find definition
+                            # -----------------------------
+
+                            definition_match = re.search(
+                                r"DEFINITION\s+(.+)",
+                                genbank_text
                             )
+
+                            if definition_match:
+                                title = (
+                                    definition_match.group(1)
+                                    .strip()
+                                )
+                            else:
+                                title = "Not available"
 
                             # -----------------------------
                             # Keep RefSeq mRNA records
@@ -251,7 +283,9 @@ if locus_id:
                                     {
                                         "id": nucleotide_id,
                                         "accession": accession,
-                                        "title": title
+                                        "version": accession_version,
+                                        "title": title,
+                                        "genbank": genbank_text
                                     }
                                 )
 
@@ -268,7 +302,7 @@ if locus_id:
                             for record in refseq_records:
 
                                 st.write(
-                                    f"**{record['accession']}**"
+                                    f"**{record['version']}**"
                                 )
 
                                 st.write(
