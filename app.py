@@ -93,6 +93,13 @@ if locus_id:
                 gene_data = summary_data["result"][gene_id]
 
                 # -----------------------------
+                # DEBUG: Show NCBI response
+                # -----------------------------
+
+                st.write("DEBUG - NCBI gene data:")
+                st.json(gene_data)
+
+                # -----------------------------
                 # Gene information
                 # -----------------------------
 
