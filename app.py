@@ -802,6 +802,10 @@ if locus_id:
     )
 
 
+    # ========================================================
+    # NUCLEOTIDE FASTA
+    # ========================================================
+
     nucleotide_fasta = (
         f">{locus_id}_CDS\n"
         f"{cds_sequence}"
@@ -847,6 +851,10 @@ if locus_id:
         f"{len(protein_sequence)} aa"
     )
 
+
+    # ========================================================
+    # PROTEIN FASTA
+    # ========================================================
 
     protein_fasta = (
         f">{locus_id}_protein\n"
@@ -898,6 +906,10 @@ if locus_id:
 
         st.stop()
 
+
+    # ========================================================
+    # SELECT UNIPROT RESULT
+    # ========================================================
 
     if len(uniprot_results) == 1:
 
@@ -972,6 +984,10 @@ if locus_id:
     )
 
 
+    # ========================================================
+    # UNIPROT INFORMATION
+    # ========================================================
+
     col1, col2, col3 = st.columns(3)
 
     with col1:
@@ -995,6 +1011,10 @@ if locus_id:
             f"{len(uniprot_sequence)} aa"
         )
 
+
+    # ========================================================
+    # SEQUENCE COMPARISON
+    # ========================================================
 
     sequences_match = (
         protein_sequence
@@ -1030,6 +1050,10 @@ if locus_id:
         )
 
 
+    # ========================================================
+    # UNIPROT SEQUENCE
+    # ========================================================
+
     with st.expander(
         "View UniProt protein sequence"
     ):
@@ -1041,7 +1065,7 @@ if locus_id:
 
 
     # ========================================================
-    # SUMMARY CARDS
+    # ANALYSIS SUMMARY TABLE
     # ========================================================
 
     st.divider()
@@ -1050,42 +1074,25 @@ if locus_id:
         "📊 Analysis Summary"
     )
 
-    summary_col1, summary_col2, summary_col3, summary_col4, summary_col5 = st.columns(5)
+    summary_table = pd.DataFrame(
+        [
+            {
+                "Gene": gene_name,
+                "Organism": organism_name,
+                "NCBI Gene ID": selected_gene_id,
+                "RefSeq": selected_record["accession"],
+                "CDS Length": f"{len(cds_sequence)} nt",
+                "Protein Length": f"{len(protein_sequence)} aa",
+                "UniProt": uniprot_id
+            }
+        ]
+    )
 
-    with summary_col1:
-
-        st.metric(
-            "Gene",
-            gene_name
-        )
-
-    with summary_col2:
-
-        st.metric(
-            "Organism",
-            organism_name
-        )
-
-    with summary_col3:
-
-        st.metric(
-            "CDS",
-            f"{len(cds_sequence)} nt"
-        )
-
-    with summary_col4:
-
-        st.metric(
-            "Protein",
-            f"{len(protein_sequence)} aa"
-        )
-
-    with summary_col5:
-
-        st.metric(
-            "UniProt",
-            uniprot_id
-        )
+    st.dataframe(
+        summary_table,
+        use_container_width=True,
+        hide_index=True
+    )
 
 
     # ========================================================
@@ -1184,6 +1191,7 @@ if locus_id:
     annotation_rows = []
 
 
+    # NCBI
     annotation_rows.append(
         {
             "Source": "NCBI",
@@ -1195,6 +1203,7 @@ if locus_id:
     )
 
 
+    # RefSeq
     annotation_rows.append(
         {
             "Source": "RefSeq",
@@ -1209,6 +1218,7 @@ if locus_id:
     )
 
 
+    # UniProt
     annotation_rows.append(
         {
             "Source": "UniProt",
@@ -1225,6 +1235,7 @@ if locus_id:
     )
 
 
+    # InterPro
     for result in interpro_results:
 
         metadata = result.get(
@@ -1277,6 +1288,7 @@ if locus_id:
     st.subheader(
         "8️⃣ Download Results"
     )
+
 
     col1, col2 = st.columns(2)
 
