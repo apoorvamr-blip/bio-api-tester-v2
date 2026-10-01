@@ -33,38 +33,52 @@ if locus_id:
 
         ids = data["esearchresult"]["idlist"]
 
-       if len(ids) == 1:
-    gene_id = ids[0]
-    st.success(f"NCBI Gene ID: {gene_id}")
+        if len(ids) == 1:
+            gene_id = ids[0]
+            st.success(f"NCBI Gene ID: {gene_id}")
 
-    summary_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
+            summary_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
 
-    summary_params = {
-        "db": "gene",
-        "id": gene_id,
-        "retmode": "json"
-    }
+            summary_params = {
+                "db": "gene",
+                "id": gene_id,
+                "retmode": "json"
+            }
 
-    summary_response = requests.get(
-        summary_url,
-        params=summary_params
-    )
+            summary_response = requests.get(
+                summary_url,
+                params=summary_params
+            )
 
-    if summary_response.status_code == 200:
+            if summary_response.status_code == 200:
 
-        summary_data = summary_response.json()
-        gene_data = summary_data["result"][gene_id]
+                summary_data = summary_response.json()
+                gene_data = summary_data["result"][gene_id]
 
-        st.subheader("Gene Information")
+                st.subheader("Gene Information")
 
-        st.write("Gene name:", gene_data.get("name"))
-        st.write("Description:", gene_data.get("description"))
-        st.write("Organism:", gene_data.get("organism", {}).get("scientificname"))
-        st.write("Chromosome:", gene_data.get("chromosome"))
-        st.write("Taxonomy ID:", gene_data.get("taxid"))
+                st.write("Gene name:", gene_data.get("name"))
+                st.write(
+                    "Description:",
+                    gene_data.get("description")
+                )
+                st.write(
+                    "Organism:",
+                    gene_data.get("organism", {}).get("scientificname")
+                )
+                st.write(
+                    "Chromosome:",
+                    gene_data.get("chromosome")
+                )
+                st.write(
+                    "Taxonomy ID:",
+                    gene_data.get("taxid")
+                )
 
-    else:
-        st.error("Could not retrieve NCBI gene information."))
+            else:
+                st.error(
+                    "Could not retrieve NCBI gene information."
+                )
 
         elif len(ids) == 0:
             st.error("No NCBI Gene record found.")
