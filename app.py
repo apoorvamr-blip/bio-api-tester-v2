@@ -802,10 +802,6 @@ if locus_id:
     )
 
 
-    # ========================================================
-    # NUCLEOTIDE FASTA
-    # ========================================================
-
     nucleotide_fasta = (
         f">{locus_id}_CDS\n"
         f"{cds_sequence}"
@@ -851,10 +847,6 @@ if locus_id:
         f"{len(protein_sequence)} aa"
     )
 
-
-    # ========================================================
-    # PROTEIN FASTA
-    # ========================================================
 
     protein_fasta = (
         f">{locus_id}_protein\n"
@@ -906,10 +898,6 @@ if locus_id:
 
         st.stop()
 
-
-    # ========================================================
-    # SELECT UNIPROT RESULT
-    # ========================================================
 
     if len(uniprot_results) == 1:
 
@@ -984,10 +972,6 @@ if locus_id:
     )
 
 
-    # ========================================================
-    # UNIPROT INFORMATION
-    # ========================================================
-
     col1, col2, col3 = st.columns(3)
 
     with col1:
@@ -1011,10 +995,6 @@ if locus_id:
             f"{len(uniprot_sequence)} aa"
         )
 
-
-    # ========================================================
-    # SEQUENCE COMPARISON
-    # ========================================================
 
     sequences_match = (
         protein_sequence
@@ -1050,10 +1030,6 @@ if locus_id:
         )
 
 
-    # ========================================================
-    # UNIPROT SEQUENCE
-    # ========================================================
-
     with st.expander(
         "View UniProt protein sequence"
     ):
@@ -1061,6 +1037,54 @@ if locus_id:
         st.code(
             uniprot_sequence,
             language="text"
+        )
+
+
+    # ========================================================
+    # SUMMARY CARDS
+    # ========================================================
+
+    st.divider()
+
+    st.subheader(
+        "📊 Analysis Summary"
+    )
+
+    summary_col1, summary_col2, summary_col3, summary_col4, summary_col5 = st.columns(5)
+
+    with summary_col1:
+
+        st.metric(
+            "Gene",
+            gene_name
+        )
+
+    with summary_col2:
+
+        st.metric(
+            "Organism",
+            organism_name
+        )
+
+    with summary_col3:
+
+        st.metric(
+            "CDS",
+            f"{len(cds_sequence)} nt"
+        )
+
+    with summary_col4:
+
+        st.metric(
+            "Protein",
+            f"{len(protein_sequence)} aa"
+        )
+
+    with summary_col5:
+
+        st.metric(
+            "UniProt",
+            uniprot_id
         )
 
 
@@ -1160,10 +1184,6 @@ if locus_id:
     annotation_rows = []
 
 
-    # --------------------------------------------------------
-    # NCBI
-    # --------------------------------------------------------
-
     annotation_rows.append(
         {
             "Source": "NCBI",
@@ -1174,10 +1194,6 @@ if locus_id:
         }
     )
 
-
-    # --------------------------------------------------------
-    # REFSEQ
-    # --------------------------------------------------------
 
     annotation_rows.append(
         {
@@ -1192,10 +1208,6 @@ if locus_id:
         }
     )
 
-
-    # --------------------------------------------------------
-    # UNIPROT
-    # --------------------------------------------------------
 
     annotation_rows.append(
         {
@@ -1212,10 +1224,6 @@ if locus_id:
         }
     )
 
-
-    # --------------------------------------------------------
-    # INTERPRO
-    # --------------------------------------------------------
 
     for result in interpro_results:
 
@@ -1250,18 +1258,10 @@ if locus_id:
         )
 
 
-    # --------------------------------------------------------
-    # CREATE DATAFRAME
-    # --------------------------------------------------------
-
     annotation_table = pd.DataFrame(
         annotation_rows
     )
 
-
-    # --------------------------------------------------------
-    # DISPLAY TABLE
-    # --------------------------------------------------------
 
     st.dataframe(
         annotation_table,
@@ -1309,6 +1309,7 @@ if locus_id:
         orient="records",
         indent=2
     )
+
 
     col3, col4 = st.columns(2)
 
