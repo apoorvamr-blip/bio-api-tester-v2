@@ -1,5 +1,6 @@
 import time
 import requests
+import pandas as pd
 import streamlit as st
 from Bio.Seq import Seq
 
@@ -46,7 +47,8 @@ def ncbi_get(endpoint, params, timeout=30):
     params["tool"] = NCBI_TOOL
     params["email"] = NCBI_EMAIL
 
-    # Small delay to avoid hitting NCBI rate limits
+    # Small delay to reduce the chance of hitting
+    # NCBI public rate limits
     time.sleep(0.4)
 
     url = f"{NCBI_BASE_URL}/{endpoint}"
@@ -236,7 +238,7 @@ def get_nucleotide_summaries(nuccore_ids):
 
 
 # ============================================================
-# FETCH GENBANK RECORD
+# FETCH ONE GENBANK RECORD
 # ============================================================
 
 @st.cache_data(ttl=3600)
@@ -258,7 +260,7 @@ def fetch_one_genbank(nuccore_id):
 
 
 # ============================================================
-# EXTRACT CDS
+# EXTRACT CDS FROM GENBANK
 # ============================================================
 
 def extract_cds(genbank_record):
@@ -288,7 +290,7 @@ def extract_cds(genbank_record):
 
         return None, None, None
 
-    # Find ORIGIN section
+    # Find ORIGIN
     origin_index = None
 
     for i, line in enumerate(lines):
@@ -484,7 +486,7 @@ if locus_id:
 
 
     # ========================================================
-    # STEP 1 — NCBI GENE SEARCH
+    # STEP 1 — GENE SEARCH
     # ========================================================
 
     st.subheader("1️⃣ Gene Search")
@@ -749,7 +751,7 @@ if locus_id:
 
 
     # ========================================================
-    # STEP 7 — CDS
+    # STEP 7 — CODING SEQUENCE
     # ========================================================
 
     st.subheader(
@@ -1073,12 +1075,12 @@ if locus_id:
 
     else:
 
-        results = interpro_data.get(
+        interpro_results = interpro_data.get(
             "results",
             []
         )
 
-        if not results:
+        if not interpro_results:
 
             st.warning(
                 "No InterPro annotations were found "
@@ -1088,11 +1090,11 @@ if locus_id:
         else:
 
             st.success(
-                f"Found {len(results)} "
+                f"Found {len(interpro_results)} "
                 "InterPro annotation(s)."
             )
 
-            for result in results:
+            for result in interpro_results:
 
                 metadata = result.get(
                     "metadata",
@@ -1127,3 +1129,191 @@ if locus_id:
                 )
 
                 st.divider()
+
+
+    # ========================================================
+    # STEP 11 — FINAL ANNOTATION TABLE
+    # ========================================================
+
+    st.subheader(
+        "7️⃣ Final Annotation Table"
+    )
+
+    annotation_rows = []
+
+
+    # --------------------------------------------------------
+    # NCBI
+    # --------------------------------------------------------
+
+    annotation_rows.append(
+        {
+            "Source": "NCBI",
+            "Record ID": selected_gene_id,
+            "Annotation": description,
+            "Organism": organism_name,
+            "Details": "Gene"
+        }
+    )
+
+
+    # --------------------------------------------------------
+    # REFSEQ
+    # --------------------------------------------------------
+
+    annotation_rows.append(
+        {
+            "Source": "RefSeq",
+            "Record ID": selected_record["accession"],
+            "Annotation": selected_record["title"],
+            "Organism": organism_name,
+            "Details": (
+                f"CDS: {cds_start}..{cds_end}; "
+                f"Length: {len(cds_sequence)} nt"
+            )
+        }
+    )
+
+
+    # --------------------------------------------------------
+    # UNIPROT
+    # --------------------------------------------------------
+
+    annotation_rows.append(
+        {
+            "Source": "UniProt",
+            "Record ID": uniprot_id,
+            "Annotation": uniprot_entry_name,
+            "Organism": organism_name,
+            "Details": (
+                f"Protein length: "
+                f"{len(uniprot_sequence)} aa; "
+                f"Sequence match: "
+                f"{'Yes' if sequences_match else 'No'}"
+            )
+        }
+    )
+
+
+    # --------------------------------------------------------
+    # INTERPRO
+    # --------------------------------------------------------
+
+    if interpro_data is not None:
+
+        for result in interpro_results:
+
+            metadata = result.get(
+                "metadata",
+                {}
+            )
+
+            accession = metadata.get(
+                "accession",
+                "Not available"
+            )
+
+            name = metadata.get(
+                "name",
+                "Not available"
+            )
+
+            entry_type = metadata.get(
+                "type",
+                "Not available"
+            )
+
+            annotation_rows.append(
+                {
+                    "Source": "InterPro",
+                    "Record ID": accession,
+                    "Annotation": name,
+                    "Organism": organism_name,
+                    "Details": entry_type
+                }
+            )
+
+
+    # --------------------------------------------------------
+    # CREATE DATAFRAME
+    # --------------------------------------------------------
+
+    annotation_table = pd.DataFrame(
+        annotation_rows
+    )
+
+
+    # --------------------------------------------------------
+    # DISPLAY TABLE
+    # --------------------------------------------------------
+
+    st.dataframe(
+        annotation_table,
+        use_container_width=True,
+        hide_index=True
+    )
+
+
+    # ========================================================
+    # STEP 12 — DOWNLOAD RESULTS
+    # ========================================================
+
+    st.subheader(
+        "8️⃣ Download Results"
+    )
+
+    # --------------------------------------------------------
+    # Download Nucleotide FASTA
+    # --------------------------------------------------------
+
+    st.download_button(
+        label="⬇️ Download Nucleotide FASTA",
+        data=nucleotide_fasta,
+        file_name=f"{locus_id}_CDS.fasta",
+        mime="text/plain"
+    )
+
+
+    # --------------------------------------------------------
+    # Download Protein FASTA
+    # --------------------------------------------------------
+
+    st.download_button(
+        label="⬇️ Download Protein FASTA",
+        data=protein_fasta,
+        file_name=f"{locus_id}_protein.fasta",
+        mime="text/plain"
+    )
+
+
+    # --------------------------------------------------------
+    # Download Annotation CSV
+    # --------------------------------------------------------
+
+    annotation_csv = annotation_table.to_csv(
+        index=False
+    )
+
+    st.download_button(
+        label="⬇️ Download Annotation CSV",
+        data=annotation_csv,
+        file_name="annotation_results.csv",
+        mime="text/csv"
+    )
+
+
+    # --------------------------------------------------------
+    # Download Annotation JSON
+    # --------------------------------------------------------
+
+    annotation_json = annotation_table.to_json(
+        orient="records",
+        indent=2
+    )
+
+    st.download_button(
+        label="⬇️ Download Annotation JSON",
+        data=annotation_json,
+        file_name="annotation_results.json",
+        mime="application/json"
+    )
