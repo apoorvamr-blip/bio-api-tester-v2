@@ -93,13 +93,6 @@ if locus_id:
                 gene_data = summary_data["result"][gene_id]
 
                 # -----------------------------
-                # DEBUG: Show NCBI response
-                # -----------------------------
-
-                st.write("DEBUG - NCBI gene data:")
-                st.json(gene_data)
-
-                # -----------------------------
                 # Gene information
                 # -----------------------------
 
@@ -130,10 +123,9 @@ if locus_id:
                     "Not available"
                 )
 
-                taxonomy_id = (
-                    gene_data.get("taxid")
-                    or gene_data.get("tax_id")
-                    or "Not available"
+                taxonomy_id = organism.get(
+                    "taxid",
+                    "Not available"
                 )
 
                 st.write(
