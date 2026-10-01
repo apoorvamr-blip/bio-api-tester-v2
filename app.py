@@ -16,7 +16,7 @@ st.set_page_config(
 
 
 # -----------------------------
-# NCBI configuration
+# API configuration
 # -----------------------------
 
 NCBI_BASE_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
@@ -25,6 +25,8 @@ NCBI_BASE_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 NCBI_EMAIL = "your_email@example.com"
 
 NCBI_TOOL = "BioAPITester"
+
+UNIPROT_SEARCH_URL = "https://rest.uniprot.org/uniprotkb/search"
 
 
 # -----------------------------
@@ -38,7 +40,6 @@ def ncbi_get(endpoint, params, timeout=30):
     params["tool"] = NCBI_TOOL
     params["email"] = NCBI_EMAIL
 
-    # Stay below NCBI's public request-rate limit.
     time.sleep(0.4)
 
     url = f"{NCBI_BASE_URL}/{endpoint}"
@@ -260,7 +261,6 @@ def extract_cds(genbank_record):
     cds_start = None
     cds_end = None
 
-    # Find CDS coordinates
     for line in lines:
 
         if line.startswith("     CDS"):
@@ -280,7 +280,6 @@ def extract_cds(genbank_record):
 
         return None, None, None
 
-    # Find ORIGIN
     origin_index = None
 
     for i, line in enumerate(lines):
@@ -295,7 +294,6 @@ def extract_cds(genbank_record):
 
         return None, None, None
 
-    # Collect nucleotide sequence
     sequence_parts = []
 
     for line in lines[origin_index + 1:]:
@@ -306,7 +304,6 @@ def extract_cds(genbank_record):
 
         parts = line.split()
 
-        # Remove the position number
         if parts:
 
             sequence_parts.extend(
@@ -317,7 +314,6 @@ def extract_cds(genbank_record):
         sequence_parts
     ).upper()
 
-    # Extract CDS
     cds_sequence = nucleotide_sequence[
         cds_start - 1:cds_end
     ]
@@ -339,12 +335,71 @@ def translate_cds(cds_sequence):
         Seq(cds_sequence).translate()
     )
 
-    # Remove terminal stop symbol
     if protein_sequence.endswith("*"):
 
         protein_sequence = protein_sequence[:-1]
 
     return protein_sequence
+
+
+# -----------------------------
+# UniProt search
+# -----------------------------
+
+@st.cache_data(ttl=3600)
+def search_uniprot(gene_name, taxonomy_id):
+
+    query = (
+        f"gene:{gene_name} "
+        f"AND organism_id:{taxonomy_id}"
+    )
+
+    params = {
+        "query": query,
+        "format": "json",
+        "size": 10
+    }
+
+    response = requests.get(
+        UNIPROT_SEARCH_URL,
+        params=params,
+        timeout=30
+    )
+
+    if response.status_code != 200:
+
+        return None, response.status_code
+
+    data = response.json()
+
+    return data.get(
+        "results",
+        []
+    ), response.status_code
+
+
+# -----------------------------
+# Retrieve UniProt record
+# -----------------------------
+
+@st.cache_data(ttl=3600)
+def get_uniprot_record(uniprot_id):
+
+    url = (
+        f"https://rest.uniprot.org/"
+        f"uniprotkb/{uniprot_id}.json"
+    )
+
+    response = requests.get(
+        url,
+        timeout=30
+    )
+
+    if response.status_code != 200:
+
+        return None, response.status_code
+
+    return response.json(), response.status_code
 
 
 # -----------------------------
@@ -559,17 +614,6 @@ if locus_id:
             "was identified."
         )
 
-        st.write(
-            "Available nucleotide records:"
-        )
-
-        for record in summaries:
-
-            st.write(
-                f"- {record['accession']} — "
-                f"{record['title']}"
-            )
-
         st.stop()
 
     # -----------------------------
@@ -620,7 +664,7 @@ if locus_id:
     )
 
     # -----------------------------
-    # Step 6: Fetch selected GenBank record
+    # Step 6: Fetch GenBank
     # -----------------------------
 
     with st.spinner(
@@ -645,10 +689,6 @@ if locus_id:
         f"Successfully retrieved "
         f"{selected_record['accession']}."
     )
-
-    # -----------------------------
-    # GenBank record
-    # -----------------------------
 
     with st.expander(
         "View GenBank record"
@@ -694,10 +734,6 @@ if locus_id:
         f"{len(cds_sequence)} nt"
     )
 
-    # -----------------------------
-    # Nucleotide FASTA
-    # -----------------------------
-
     nucleotide_fasta = (
         f">{locus_id}_CDS\n"
         f"{cds_sequence}"
@@ -742,10 +778,6 @@ if locus_id:
         f"{len(protein_sequence)} aa"
     )
 
-    # -----------------------------
-    # Protein FASTA
-    # -----------------------------
-
     protein_fasta = (
         f">{locus_id}_protein\n"
         f"{protein_sequence}"
@@ -759,3 +791,188 @@ if locus_id:
         protein_fasta,
         language="text"
     )
+
+    # -----------------------------
+    # Step 9: UniProt
+    # -----------------------------
+
+    st.subheader(
+        "5️⃣ UniProt"
+    )
+
+    with st.spinner(
+        "Searching UniProt..."
+    ):
+
+        uniprot_results, uniprot_status = search_uniprot(
+            gene_name,
+            taxonomy_id
+        )
+
+    if uniprot_results is None:
+
+        st.error(
+            f"UniProt search failed. "
+            f"HTTP status: {uniprot_status}"
+        )
+
+        st.stop()
+
+    if not uniprot_results:
+
+        st.warning(
+            "No UniProt record was found "
+            "for this gene and organism."
+        )
+
+        st.stop()
+
+    # -----------------------------
+    # Select UniProt result
+    # -----------------------------
+
+    if len(uniprot_results) == 1:
+
+        selected_uniprot = uniprot_results[0]
+
+    else:
+
+        st.warning(
+            f"Found {len(uniprot_results)} "
+            "UniProt results."
+        )
+
+        uniprot_options = [
+            result.get(
+                "primaryAccession",
+                "Unknown"
+            )
+            for result in uniprot_results
+        ]
+
+        selected_uniprot_id = st.selectbox(
+            "Select UniProt entry",
+            uniprot_options
+        )
+
+        selected_uniprot = next(
+            result
+            for result in uniprot_results
+            if result.get("primaryAccession")
+            == selected_uniprot_id
+        )
+
+    uniprot_id = selected_uniprot.get(
+        "primaryAccession",
+        "Not available"
+    )
+
+    uniprot_entry_name = selected_uniprot.get(
+        "uniProtkbId",
+        "Not available"
+    )
+
+    # -----------------------------
+    # Retrieve UniProt record
+    # -----------------------------
+
+    with st.spinner(
+        f"Retrieving UniProt record "
+        f"{uniprot_id}..."
+    ):
+
+        uniprot_record, record_status = get_uniprot_record(
+            uniprot_id
+        )
+
+    if uniprot_record is None:
+
+        st.error(
+            f"Could not retrieve UniProt record. "
+            f"HTTP status: {record_status}"
+        )
+
+        st.stop()
+
+    uniprot_sequence = (
+        uniprot_record
+        .get("sequence", {})
+        .get("value", "")
+    )
+
+    # -----------------------------
+    # UniProt information
+    # -----------------------------
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+
+        st.metric(
+            "UniProt ID",
+            uniprot_id
+        )
+
+    with col2:
+
+        st.metric(
+            "Entry Name",
+            uniprot_entry_name
+        )
+
+    with col3:
+
+        st.metric(
+            "Protein Length",
+            f"{len(uniprot_sequence)} aa"
+        )
+
+    # -----------------------------
+    # Sequence comparison
+    # -----------------------------
+
+    sequences_match = (
+        protein_sequence
+        == uniprot_sequence
+    )
+
+    st.write(
+        f"**Our translated protein:** "
+        f"{len(protein_sequence)} aa"
+    )
+
+    st.write(
+        f"**UniProt protein:** "
+        f"{len(uniprot_sequence)} aa"
+    )
+
+    if sequences_match:
+
+        st.success(
+            "✅ Protein sequences are identical."
+        )
+
+    else:
+
+        st.warning(
+            "⚠️ Protein sequences are not identical."
+        )
+
+        st.write(
+            "The UniProt sequence and translated "
+            "CDS should be reviewed before treating "
+            "them as the same protein."
+        )
+
+    # -----------------------------
+    # UniProt protein sequence
+    # -----------------------------
+
+    with st.expander(
+        "View UniProt protein sequence"
+    ):
+
+        st.code(
+            uniprot_sequence,
+            language="text"
+        )
