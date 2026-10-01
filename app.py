@@ -4,9 +4,9 @@ import streamlit as st
 from Bio.Seq import Seq
 
 
-# -----------------------------
-# Page configuration
-# -----------------------------
+# ============================================================
+# PAGE CONFIGURATION
+# ============================================================
 
 st.set_page_config(
     page_title="Bio API Tester",
@@ -15,23 +15,29 @@ st.set_page_config(
 )
 
 
-# -----------------------------
-# API configuration
-# -----------------------------
+# ============================================================
+# API CONFIGURATION
+# ============================================================
 
 NCBI_BASE_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
-# Replace this with your real email before deployment.
+# Replace this with your real email address
 NCBI_EMAIL = "your_email@example.com"
 
 NCBI_TOOL = "BioAPITester"
 
-UNIPROT_SEARCH_URL = "https://rest.uniprot.org/uniprotkb/search"
+UNIPROT_SEARCH_URL = (
+    "https://rest.uniprot.org/uniprotkb/search"
+)
+
+INTERPRO_BASE_URL = (
+    "https://www.ebi.ac.uk/interpro/api"
+)
 
 
-# -----------------------------
-# NCBI request helper
-# -----------------------------
+# ============================================================
+# NCBI REQUEST HELPER
+# ============================================================
 
 def ncbi_get(endpoint, params, timeout=30):
 
@@ -40,6 +46,7 @@ def ncbi_get(endpoint, params, timeout=30):
     params["tool"] = NCBI_TOOL
     params["email"] = NCBI_EMAIL
 
+    # Small delay to avoid hitting NCBI rate limits
     time.sleep(0.4)
 
     url = f"{NCBI_BASE_URL}/{endpoint}"
@@ -71,9 +78,9 @@ def ncbi_get(endpoint, params, timeout=30):
     return response
 
 
-# -----------------------------
-# NCBI Gene search
-# -----------------------------
+# ============================================================
+# NCBI GENE SEARCH
+# ============================================================
 
 @st.cache_data(ttl=3600)
 def search_gene(locus_id):
@@ -94,9 +101,9 @@ def search_gene(locus_id):
     return data["esearchresult"]["idlist"]
 
 
-# -----------------------------
-# NCBI Gene summary
-# -----------------------------
+# ============================================================
+# NCBI GENE SUMMARY
+# ============================================================
 
 @st.cache_data(ttl=3600)
 def get_gene_summary(gene_id):
@@ -117,9 +124,9 @@ def get_gene_summary(gene_id):
     return data["result"][gene_id]
 
 
-# -----------------------------
-# Gene → nucleotide links
-# -----------------------------
+# ============================================================
+# GENE → NUCLEOTIDE LINKS
+# ============================================================
 
 @st.cache_data(ttl=3600)
 def get_nucleotide_links(gene_id):
@@ -164,9 +171,9 @@ def get_nucleotide_links(gene_id):
     return nucleotide_ids
 
 
-# -----------------------------
-# Lightweight nucleotide summaries
-# -----------------------------
+# ============================================================
+# NUCLEOTIDE SUMMARIES
+# ============================================================
 
 @st.cache_data(ttl=3600)
 def get_nucleotide_summaries(nuccore_ids):
@@ -228,9 +235,9 @@ def get_nucleotide_summaries(nuccore_ids):
     return summaries
 
 
-# -----------------------------
-# Fetch ONE GenBank record
-# -----------------------------
+# ============================================================
+# FETCH GENBANK RECORD
+# ============================================================
 
 @st.cache_data(ttl=3600)
 def fetch_one_genbank(nuccore_id):
@@ -250,9 +257,9 @@ def fetch_one_genbank(nuccore_id):
     return response.text
 
 
-# -----------------------------
-# Extract CDS from GenBank
-# -----------------------------
+# ============================================================
+# EXTRACT CDS
+# ============================================================
 
 def extract_cds(genbank_record):
 
@@ -261,6 +268,7 @@ def extract_cds(genbank_record):
     cds_start = None
     cds_end = None
 
+    # Find CDS coordinates
     for line in lines:
 
         if line.startswith("     CDS"):
@@ -280,6 +288,7 @@ def extract_cds(genbank_record):
 
         return None, None, None
 
+    # Find ORIGIN section
     origin_index = None
 
     for i, line in enumerate(lines):
@@ -294,6 +303,7 @@ def extract_cds(genbank_record):
 
         return None, None, None
 
+    # Extract nucleotide sequence
     sequence_parts = []
 
     for line in lines[origin_index + 1:]:
@@ -325,9 +335,9 @@ def extract_cds(genbank_record):
     )
 
 
-# -----------------------------
-# Translate CDS
-# -----------------------------
+# ============================================================
+# TRANSLATE CDS
+# ============================================================
 
 def translate_cds(cds_sequence):
 
@@ -335,6 +345,7 @@ def translate_cds(cds_sequence):
         Seq(cds_sequence).translate()
     )
 
+    # Remove terminal stop symbol
     if protein_sequence.endswith("*"):
 
         protein_sequence = protein_sequence[:-1]
@@ -342,9 +353,9 @@ def translate_cds(cds_sequence):
     return protein_sequence
 
 
-# -----------------------------
-# UniProt search
-# -----------------------------
+# ============================================================
+# UNIPROT SEARCH
+# ============================================================
 
 @st.cache_data(ttl=3600)
 def search_uniprot(gene_name, taxonomy_id):
@@ -372,21 +383,21 @@ def search_uniprot(gene_name, taxonomy_id):
 
     data = response.json()
 
-    return data.get(
-        "results",
-        []
-    ), response.status_code
+    return (
+        data.get("results", []),
+        response.status_code
+    )
 
 
-# -----------------------------
-# Retrieve UniProt record
-# -----------------------------
+# ============================================================
+# GET UNIPROT RECORD
+# ============================================================
 
 @st.cache_data(ttl=3600)
 def get_uniprot_record(uniprot_id):
 
     url = (
-        f"https://rest.uniprot.org/"
+        "https://rest.uniprot.org/"
         f"uniprotkb/{uniprot_id}.json"
     )
 
@@ -399,23 +410,55 @@ def get_uniprot_record(uniprot_id):
 
         return None, response.status_code
 
-    return response.json(), response.status_code
+    return (
+        response.json(),
+        response.status_code
+    )
 
 
-# -----------------------------
-# Header
-# -----------------------------
+# ============================================================
+# INTERPRO
+# ============================================================
+
+@st.cache_data(ttl=3600)
+def get_interpro_annotations(uniprot_id):
+
+    url = (
+        f"{INTERPRO_BASE_URL}/"
+        "entry/interpro/protein/uniprot/"
+        f"{uniprot_id}"
+    )
+
+    response = requests.get(
+        url,
+        timeout=30
+    )
+
+    if response.status_code != 200:
+
+        return None, response.status_code
+
+    return (
+        response.json(),
+        response.status_code
+    )
+
+
+# ============================================================
+# HEADER
+# ============================================================
 
 st.title("🧬 Bio API Tester")
 
 st.write(
-    "Enter a Locus ID to retrieve biological sequence information."
+    "Enter a Locus ID to retrieve biological "
+    "sequence and annotation information."
 )
 
 
-# -----------------------------
-# User input
-# -----------------------------
+# ============================================================
+# USER INPUT
+# ============================================================
 
 locus_id = st.text_input(
     "Locus ID",
@@ -423,9 +466,9 @@ locus_id = st.text_input(
 )
 
 
-# -----------------------------
-# Main workflow
-# -----------------------------
+# ============================================================
+# MAIN WORKFLOW
+# ============================================================
 
 if locus_id:
 
@@ -439,9 +482,10 @@ if locus_id:
 
         st.stop()
 
-    # -----------------------------
-    # Step 1: Find gene
-    # -----------------------------
+
+    # ========================================================
+    # STEP 1 — NCBI GENE SEARCH
+    # ========================================================
 
     st.subheader("1️⃣ Gene Search")
 
@@ -465,8 +509,7 @@ if locus_id:
     if len(gene_ids) > 1:
 
         st.warning(
-            "Multiple NCBI Gene records were found. "
-            "Please select one."
+            "Multiple NCBI Gene records were found."
         )
 
         selected_gene_id = st.selectbox(
@@ -478,9 +521,10 @@ if locus_id:
 
         selected_gene_id = gene_ids[0]
 
-    # -----------------------------
-    # Step 2: Gene information
-    # -----------------------------
+
+    # ========================================================
+    # STEP 2 — GENE INFORMATION
+    # ========================================================
 
     with st.spinner(
         "Retrieving gene information..."
@@ -519,6 +563,7 @@ if locus_id:
         "chromosome",
         "Not available"
     )
+
 
     st.subheader(
         "Gene Information"
@@ -559,9 +604,10 @@ if locus_id:
         f"**NCBI Gene ID:** {selected_gene_id}"
     )
 
-    # -----------------------------
-    # Step 3: Linked nucleotide records
-    # -----------------------------
+
+    # ========================================================
+    # STEP 3 — NUCLEOTIDE RECORDS
+    # ========================================================
 
     st.subheader(
         "2️⃣ Nucleotide Records"
@@ -589,9 +635,10 @@ if locus_id:
         f"linked nucleotide records."
     )
 
-    # -----------------------------
-    # Step 4: Lightweight summaries
-    # -----------------------------
+
+    # ========================================================
+    # STEP 4 — NUCLEOTIDE SUMMARIES
+    # ========================================================
 
     with st.spinner(
         "Identifying the RefSeq transcript..."
@@ -616,9 +663,10 @@ if locus_id:
 
         st.stop()
 
-    # -----------------------------
-    # Step 5: Select transcript
-    # -----------------------------
+
+    # ========================================================
+    # STEP 5 — SELECT TRANSCRIPT
+    # ========================================================
 
     if len(refseq_candidates) == 1:
 
@@ -627,8 +675,7 @@ if locus_id:
     else:
 
         st.warning(
-            "Multiple RefSeq mRNA records "
-            "were found."
+            "Multiple RefSeq mRNA records were found."
         )
 
         options = [
@@ -648,6 +695,7 @@ if locus_id:
             == selected_accession
         )
 
+
     st.write(
         f"**Selected transcript:** "
         f"{selected_record['accession']}"
@@ -663,9 +711,10 @@ if locus_id:
         f"{selected_record['uid']}"
     )
 
-    # -----------------------------
-    # Step 6: Fetch GenBank
-    # -----------------------------
+
+    # ========================================================
+    # STEP 6 — FETCH GENBANK
+    # ========================================================
 
     with st.spinner(
         f"Retrieving "
@@ -679,8 +728,7 @@ if locus_id:
     if not genbank_record.strip():
 
         st.error(
-            "The selected GenBank record "
-            "was empty."
+            "The selected GenBank record was empty."
         )
 
         st.stop()
@@ -699,9 +747,10 @@ if locus_id:
             language="text"
         )
 
-    # -----------------------------
-    # Step 7: Extract CDS
-    # -----------------------------
+
+    # ========================================================
+    # STEP 7 — CDS
+    # ========================================================
 
     st.subheader(
         "3️⃣ Coding Sequence"
@@ -734,6 +783,11 @@ if locus_id:
         f"{len(cds_sequence)} nt"
     )
 
+
+    # ========================================================
+    # NUCLEOTIDE FASTA
+    # ========================================================
+
     nucleotide_fasta = (
         f">{locus_id}_CDS\n"
         f"{cds_sequence}"
@@ -748,9 +802,10 @@ if locus_id:
         language="text"
     )
 
-    # -----------------------------
-    # Step 8: Translate CDS
-    # -----------------------------
+
+    # ========================================================
+    # STEP 8 — PROTEIN TRANSLATION
+    # ========================================================
 
     st.subheader(
         "4️⃣ Protein Sequence"
@@ -778,6 +833,11 @@ if locus_id:
         f"{len(protein_sequence)} aa"
     )
 
+
+    # ========================================================
+    # PROTEIN FASTA
+    # ========================================================
+
     protein_fasta = (
         f">{locus_id}_protein\n"
         f"{protein_sequence}"
@@ -792,9 +852,10 @@ if locus_id:
         language="text"
     )
 
-    # -----------------------------
-    # Step 9: UniProt
-    # -----------------------------
+
+    # ========================================================
+    # STEP 9 — UNIPROT
+    # ========================================================
 
     st.subheader(
         "5️⃣ UniProt"
@@ -827,9 +888,10 @@ if locus_id:
 
         st.stop()
 
-    # -----------------------------
-    # Select UniProt result
-    # -----------------------------
+
+    # ========================================================
+    # SELECT UNIPROT RESULT
+    # ========================================================
 
     if len(uniprot_results) == 1:
 
@@ -862,6 +924,7 @@ if locus_id:
             == selected_uniprot_id
         )
 
+
     uniprot_id = selected_uniprot.get(
         "primaryAccession",
         "Not available"
@@ -872,9 +935,10 @@ if locus_id:
         "Not available"
     )
 
-    # -----------------------------
-    # Retrieve UniProt record
-    # -----------------------------
+
+    # ========================================================
+    # GET FULL UNIPROT RECORD
+    # ========================================================
 
     with st.spinner(
         f"Retrieving UniProt record "
@@ -894,15 +958,17 @@ if locus_id:
 
         st.stop()
 
+
     uniprot_sequence = (
         uniprot_record
         .get("sequence", {})
         .get("value", "")
     )
 
-    # -----------------------------
-    # UniProt information
-    # -----------------------------
+
+    # ========================================================
+    # UNIPROT INFORMATION
+    # ========================================================
 
     col1, col2, col3 = st.columns(3)
 
@@ -927,9 +993,10 @@ if locus_id:
             f"{len(uniprot_sequence)} aa"
         )
 
-    # -----------------------------
-    # Sequence comparison
-    # -----------------------------
+
+    # ========================================================
+    # SEQUENCE COMPARISON
+    # ========================================================
 
     sequences_match = (
         protein_sequence
@@ -949,13 +1016,13 @@ if locus_id:
     if sequences_match:
 
         st.success(
-            "✅ Protein sequences are identical."
+            "Protein sequences are identical."
         )
 
     else:
 
         st.warning(
-            "⚠️ Protein sequences are not identical."
+            "Protein sequences are not identical."
         )
 
         st.write(
@@ -964,9 +1031,10 @@ if locus_id:
             "them as the same protein."
         )
 
-    # -----------------------------
-    # UniProt protein sequence
-    # -----------------------------
+
+    # ========================================================
+    # UNIPROT SEQUENCE
+    # ========================================================
 
     with st.expander(
         "View UniProt protein sequence"
@@ -976,3 +1044,86 @@ if locus_id:
             uniprot_sequence,
             language="text"
         )
+
+
+    # ========================================================
+    # STEP 10 — INTERPRO
+    # ========================================================
+
+    st.subheader(
+        "6️⃣ InterPro"
+    )
+
+    with st.spinner(
+        "Retrieving InterPro annotations..."
+    ):
+
+        interpro_data, interpro_status = (
+            get_interpro_annotations(
+                uniprot_id
+            )
+        )
+
+    if interpro_data is None:
+
+        st.error(
+            f"InterPro request failed. "
+            f"HTTP status: {interpro_status}"
+        )
+
+    else:
+
+        results = interpro_data.get(
+            "results",
+            []
+        )
+
+        if not results:
+
+            st.warning(
+                "No InterPro annotations were found "
+                "for this UniProt protein."
+            )
+
+        else:
+
+            st.success(
+                f"Found {len(results)} "
+                "InterPro annotation(s)."
+            )
+
+            for result in results:
+
+                metadata = result.get(
+                    "metadata",
+                    {}
+                )
+
+                accession = metadata.get(
+                    "accession",
+                    "Not available"
+                )
+
+                name = metadata.get(
+                    "name",
+                    "Not available"
+                )
+
+                entry_type = metadata.get(
+                    "type",
+                    "Not available"
+                )
+
+                st.write(
+                    f"**InterPro ID:** {accession}"
+                )
+
+                st.write(
+                    f"**Name:** {name}"
+                )
+
+                st.write(
+                    f"**Type:** {entry_type}"
+                )
+
+                st.divider()
