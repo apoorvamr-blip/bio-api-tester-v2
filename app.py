@@ -153,6 +153,69 @@ if locus_id:
                     taxonomy_id
                 )
 
+                # -----------------------------
+                # Link Gene to nucleotide records
+                # -----------------------------
+
+                st.subheader("Linked Nucleotide Records")
+
+                link_url = (
+                    "https://eutils.ncbi.nlm.nih.gov/"
+                    "entrez/eutils/elink.fcgi"
+                )
+
+                link_params = {
+                    "dbfrom": "gene",
+                    "db": "nuccore",
+                    "id": gene_id,
+                    "retmode": "json"
+                }
+
+                link_response = requests.get(
+                    link_url,
+                    params=link_params
+                )
+
+                if link_response.status_code == 200:
+
+                    link_data = link_response.json()
+
+                    try:
+
+                        nucleotide_ids = (
+                            link_data["linksets"][0]
+                            ["linksetdbs"][0]
+                            ["links"]
+                        )
+
+                        st.write(
+                            f"Found {len(nucleotide_ids)} "
+                            "linked nucleotide records."
+                        )
+
+                        st.write(
+                            "Nucleotide IDs:"
+                        )
+
+                        st.write(nucleotide_ids)
+
+                    except (
+                        KeyError,
+                        IndexError
+                    ):
+
+                        st.warning(
+                            "No linked nucleotide records "
+                            "were found for this gene."
+                        )
+
+                else:
+
+                    st.error(
+                        "Could not retrieve linked "
+                        "nucleotide records."
+                    )
+
             else:
 
                 st.error(
