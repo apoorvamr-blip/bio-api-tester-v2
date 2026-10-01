@@ -139,173 +139,71 @@ if locus_id:
         st.write(f"**Taxonomy ID:** `{taxonomy_id}`")
         st.write(f"**NCBI Gene ID:** `{gene_id}`")
 
-    # ==================================================
-    # STEP 4: SEARCH FOR REFSEQ mRNA
+       # ==================================================
+    # STEP 4: LINK GENE TO NUCLEOTIDE RECORDS
     # ==================================================
 
-    st.subheader("RefSeq mRNA Candidates")
+    st.subheader("Nucleotide Records")
 
-    nuccore_search_url = (
-        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+    elink_url = (
+        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi"
     )
 
-    # --------------------------------------------------
-    # First search: locus ID
-    # --------------------------------------------------
-
-    nuccore_params = {
+    elink_params = {
+        "dbfrom": "gene",
         "db": "nuccore",
-        "term": (
-            f'"{locus_id}"[All Fields] '
-            f'AND {taxonomy_id}[TaxID] '
-            f'AND srcdb_refseq[PROP] '
-            f'AND biomol_mrna[PROP]'
-        ),
-        "retmode": "json",
-        "retmax": 20
+        "id": gene_id,
+        "retmode": "json"
     }
 
-    with st.spinner("Searching NCBI for RefSeq mRNA..."):
+    with st.spinner("Finding linked nucleotide records..."):
 
-        nuccore_response = requests.get(
-            nuccore_search_url,
-            params=nuccore_params,
+        elink_response = requests.get(
+            elink_url,
+            params=elink_params,
             timeout=30
         )
 
-    # --------------------------------------------------
-    # Check response
-    # --------------------------------------------------
-
-    if nuccore_response.status_code != 200:
-
-        st.error(
-            "NCBI nucleotide search returned an HTTP error."
-        )
-
-        st.write(
-            f"HTTP status: {nuccore_response.status_code}"
-        )
-
-        with st.expander("NCBI response"):
-            st.code(nuccore_response.text[:2000])
-
+    if elink_response.status_code != 200:
+        st.error("Could not retrieve linked nucleotide records.")
         st.stop()
-
-    # --------------------------------------------------
-    # Parse JSON safely
-    # --------------------------------------------------
 
     try:
-
-        nuccore_data = nuccore_response.json()
-
+        elink_data = elink_response.json()
     except ValueError:
-
-        st.error(
-            "NCBI nucleotide search did not return valid JSON."
-        )
-
-        with st.expander("NCBI response"):
-            st.code(nuccore_response.text[:2000])
-
+        st.error("NCBI ELink did not return valid JSON.")
         st.stop()
 
-    # --------------------------------------------------
     # Extract nucleotide IDs
-    # --------------------------------------------------
+    linksets = elink_data.get("linksets", [])
 
-    nuccore_result = nuccore_data.get(
-        "esearchresult",
-        {}
-    )
-
-    nuccore_ids = nuccore_result.get(
-        "idlist",
-        []
-    )
-
-    # --------------------------------------------------
-    # If locus search finds nothing, try gene name
-    # --------------------------------------------------
-
-    if not nuccore_ids:
-
-        st.info(
-            "No RefSeq mRNA found using the locus ID. "
-            "Trying the NCBI gene name..."
-        )
-
-        fallback_params = {
-            "db": "nuccore",
-            "term": (
-                f'"{gene_name}"[All Fields] '
-                f'AND {taxonomy_id}[TaxID] '
-                f'AND srcdb_refseq[PROP] '
-                f'AND biomol_mrna[PROP]'
-            ),
-            "retmode": "json",
-            "retmax": 20
-        }
-
-        fallback_response = requests.get(
-            nuccore_search_url,
-            params=fallback_params,
-            timeout=30
-        )
-
-        if fallback_response.status_code != 200:
-
-            st.error(
-                "The fallback NCBI nucleotide search failed."
-            )
-            st.stop()
-
-        try:
-
-            fallback_data = fallback_response.json()
-
-        except ValueError:
-
-            st.error(
-                "The fallback NCBI search did not return JSON."
-            )
-
-            with st.expander("NCBI response"):
-                st.code(fallback_response.text[:2000])
-
-            st.stop()
-
-        nuccore_ids = (
-            fallback_data
-            .get("esearchresult", {})
-            .get("idlist", [])
-        )
-
-    # ==================================================
-    # STEP 5: CHECK CANDIDATES
-    # ==================================================
-
-    if not nuccore_ids:
-
-        st.warning(
-            "No RefSeq mRNA candidates were found."
-        )
-
+    if not linksets:
+        st.error("No nucleotide records were linked to this gene.")
         st.stop()
 
-    st.success(
-        f"Found {len(nuccore_ids)} RefSeq mRNA candidate(s)."
+    linksetdbs = linksets[0].get("linksetdbs", [])
+
+    nuccore_ids = []
+
+    for linkset in linksetdbs:
+
+        if linkset.get("dbto") == "nuccore":
+
+            nuccore_ids.extend(
+                linkset.get("links", [])
+            )
+
+    if not nuccore_ids:
+        st.error("No nucleotide records were found.")
+        st.stop()
+
+    st.write(
+        f"Found {len(nuccore_ids)} linked nucleotide records."
     )
 
     # ==================================================
-    # STEP 6: RETRIEVE GENBANK RECORD
+    # STEP 5: RETRIEVE LINKED RECORDS
     # ==================================================
-
-    # For now, use the first candidate.
-    # We will improve candidate selection later.
-
-    selected_id = nuccore_ids[0]
 
     efetch_url = (
         "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
@@ -313,46 +211,147 @@ if locus_id:
 
     efetch_params = {
         "db": "nuccore",
-        "id": selected_id,
+        "id": ",".join(nuccore_ids),
         "rettype": "gb",
         "retmode": "text"
     }
 
-    with st.spinner("Retrieving GenBank record..."):
+    with st.spinner("Searching linked records for RefSeq mRNA..."):
 
         efetch_response = requests.get(
             efetch_url,
             params=efetch_params,
-            timeout=30
+            timeout=60
         )
 
     if efetch_response.status_code != 200:
-
-        st.error(
-            "Could not retrieve the GenBank record."
-        )
-
+        st.error("Could not retrieve nucleotide records.")
         st.stop()
 
     genbank_text = efetch_response.text
 
     # ==================================================
-    # STEP 7: DISPLAY GENBANK RECORD
+    # STEP 6: SPLIT GENBANK RECORDS
+    # ==================================================
+
+    records = genbank_text.split("\n//")
+
+    refseq_candidates = []
+
+    for record in records:
+
+        if "LOCUS" not in record:
+            continue
+
+        # Look for RefSeq mRNA records.
+        # RefSeq mRNA accessions normally begin with NM_.
+
+        accession = None
+        definition = None
+
+        for line in record.splitlines():
+
+            if line.startswith("ACCESSION"):
+                parts = line.split()
+
+                if len(parts) >= 2:
+                    accession = parts[1]
+
+            elif line.startswith("DEFINITION"):
+                definition = line.replace(
+                    "DEFINITION", ""
+                ).strip()
+
+        if accession and accession.startswith("NM_"):
+
+            refseq_candidates.append({
+                "accession": accession,
+                "definition": definition,
+                "record": record
+            })
+
+    # ==================================================
+    # STEP 7: CHECK REFSEQ CANDIDATES
+    # ==================================================
+
+    st.subheader("RefSeq mRNA Candidates")
+
+    if not refseq_candidates:
+
+        st.warning(
+            "No RefSeq mRNA records were found among the linked "
+            "nucleotide records."
+        )
+
+        st.stop()
+
+    st.success(
+        f"Found {len(refseq_candidates)} RefSeq mRNA candidate(s)."
+    )
+
+    # ==================================================
+    # STEP 8: DISPLAY CANDIDATES
+    # ==================================================
+
+    for candidate in refseq_candidates:
+
+        st.write(
+            f"**{candidate['accession']}**"
+        )
+
+        if candidate["definition"]:
+            st.write(candidate["definition"])
+
+    # ==================================================
+    # STEP 9: SELECT RECORD
+    # ==================================================
+
+    if len(refseq_candidates) > 1:
+
+        candidate_names = [
+            candidate["accession"]
+            for candidate in refseq_candidates
+        ]
+
+        selected_accession = st.selectbox(
+            "Select a RefSeq mRNA:",
+            candidate_names
+        )
+
+        selected_candidate = next(
+            candidate
+            for candidate in refseq_candidates
+            if candidate["accession"] == selected_accession
+        )
+
+    else:
+
+        selected_candidate = refseq_candidates[0]
+
+    selected_accession = selected_candidate["accession"]
+    selected_genbank = selected_candidate["record"]
+
+    # ==================================================
+    # STEP 10: GENBANK RECORD
     # ==================================================
 
     st.subheader("GenBank Record")
 
+    st.write(
+        f"**Selected RefSeq:** `{selected_accession}`"
+    )
+
     with st.expander("View GenBank record"):
-        st.code(genbank_text)
+        st.code(selected_genbank)
 
     # ==================================================
-    # STEP 8: FIND CDS
+    # STEP 11: FIND CDS
     # ==================================================
 
     cds_start = None
     cds_end = None
 
-    for line in genbank_text.splitlines():
+    for line in selected_genbank.splitlines():
 
         stripped_line = line.strip()
 
@@ -378,17 +377,18 @@ if locus_id:
 
                         break
 
-    # ==================================================
-    # STEP 9: DISPLAY CDS INFORMATION
-    # ==================================================
-
     if cds_start is None or cds_end is None:
 
         st.error(
-            "Could not find a CDS feature in the GenBank record."
+            "Could not find a CDS feature in the selected "
+            "GenBank record."
         )
 
         st.stop()
+
+    # ==================================================
+    # STEP 12: CDS INFORMATION
+    # ==================================================
 
     cds_length = cds_end - cds_start + 1
 
