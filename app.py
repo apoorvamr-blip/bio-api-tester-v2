@@ -24,31 +24,41 @@ st.set_page_config(
 NCBI_BASE_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
 # IMPORTANT:
-# Replace this with your real email before deployment.
+# Replace with your real email before deployment.
 NCBI_EMAIL = "your_email@example.com"
 
 NCBI_TOOL = "BioAPITester"
 
-UNIPROT_SEARCH_URL = "https://rest.uniprot.org/uniprotkb/search"
+UNIPROT_SEARCH_URL = (
+    "https://rest.uniprot.org/uniprotkb/search"
+)
 
-INTERPRO_BASE_URL = "https://www.ebi.ac.uk/interpro/api"
+INTERPRO_BASE_URL = (
+    "https://www.ebi.ac.uk/interpro/api"
+)
 
 
 # ============================================================
-# HELPER FUNCTIONS
+# GENERAL HELPERS
 # ============================================================
+
+def format_fasta(sequence, width=60):
+    """Format sequence into readable FASTA lines."""
+
+    return "\n".join(
+        sequence[i:i + width]
+        for i in range(0, len(sequence), width)
+    )
+
 
 def ncbi_get(endpoint, params, timeout=30):
-    """
-    Make a request to the NCBI E-utilities API.
-    """
+    """Make a request to NCBI E-utilities."""
 
     params = params.copy()
 
     params["tool"] = NCBI_TOOL
     params["email"] = NCBI_EMAIL
 
-    # Small delay to avoid hitting NCBI too quickly
     time.sleep(0.4)
 
     url = f"{NCBI_BASE_URL}/{endpoint}"
@@ -60,42 +70,32 @@ def ncbi_get(endpoint, params, timeout=30):
     )
 
     if response.status_code == 429:
+
         st.error(
             "NCBI rate limit reached. "
             "Please wait a few seconds and try again."
         )
+
         st.stop()
 
     if response.status_code != 200:
+
         st.error(
-            f"NCBI request failed. HTTP status: "
-            f"{response.status_code}"
+            f"NCBI request failed. "
+            f"HTTP status: {response.status_code}"
         )
+
         st.stop()
 
     return response
 
 
-def format_fasta(sequence, width=60):
-    """
-    Format a sequence into FASTA-style lines.
-    """
-
-    return "\n".join(
-        sequence[i:i + width]
-        for i in range(0, len(sequence), width)
-    )
-
-
 # ============================================================
-# NCBI FUNCTIONS
+# NCBI GENE
 # ============================================================
 
 @st.cache_data(ttl=3600)
 def search_gene(locus_id):
-    """
-    Search NCBI Gene using the supplied locus ID.
-    """
 
     params = {
         "db": "gene",
@@ -110,7 +110,10 @@ def search_gene(locus_id):
 
     data = response.json()
 
-    return data.get("esearchresult", {}).get(
+    return data.get(
+        "esearchresult",
+        {}
+    ).get(
         "idlist",
         []
     )
@@ -118,9 +121,6 @@ def search_gene(locus_id):
 
 @st.cache_data(ttl=3600)
 def get_gene_summary(gene_id):
-    """
-    Retrieve NCBI Gene summary.
-    """
 
     params = {
         "db": "gene",
@@ -135,7 +135,10 @@ def get_gene_summary(gene_id):
 
     data = response.json()
 
-    return data.get("result", {}).get(
+    return data.get(
+        "result",
+        {}
+    ).get(
         str(gene_id),
         {}
     )
@@ -143,9 +146,6 @@ def get_gene_summary(gene_id):
 
 @st.cache_data(ttl=3600)
 def get_nucleotide_links(gene_id):
-    """
-    Find nucleotide records linked to the NCBI Gene record.
-    """
 
     params = {
         "dbfrom": "gene",
@@ -163,33 +163,40 @@ def get_nucleotide_links(gene_id):
 
     linked_ids = []
 
-    try:
-        linksets = data.get("linksets", [])
+    for linkset in data.get("linksets", []):
 
-        for linkset in linksets:
-            for link in linkset.get("linksetdbs", []):
-                linked_ids.extend(
-                    link.get("links", [])
+        for link in linkset.get(
+            "linksetdbs",
+            []
+        ):
+
+            linked_ids.extend(
+                link.get(
+                    "links",
+                    []
                 )
+            )
 
-    except Exception:
-        pass
-
-    return list(dict.fromkeys(linked_ids))
+    return list(
+        dict.fromkeys(
+            linked_ids
+        )
+    )
 
 
 @st.cache_data(ttl=3600)
-def get_nucleotide_summaries(nuccore_ids):
-    """
-    Retrieve lightweight summaries for linked nucleotide records.
-    """
+def get_nucleotide_summaries(
+    nuccore_ids
+):
 
     if not nuccore_ids:
         return []
 
     params = {
         "db": "nuccore",
-        "id": ",".join(nuccore_ids),
+        "id": ",".join(
+            nuccore_ids
+        ),
         "retmode": "json"
     }
 
@@ -200,17 +207,30 @@ def get_nucleotide_summaries(nuccore_ids):
 
     data = response.json()
 
-    result = data.get("result", {})
+    result = data.get(
+        "result",
+        {}
+    )
 
     summaries = []
 
-    for uid in result.get("uids", []):
+    for uid in result.get(
+        "uids",
+        []
+    ):
 
-        item = result.get(uid, {})
+        item = result.get(
+            uid,
+            {}
+        )
 
         accession = (
-            item.get("accessionversion")
-            or item.get("caption")
+            item.get(
+                "accessionversion"
+            )
+            or item.get(
+                "caption"
+            )
             or ""
         )
 
@@ -234,10 +254,9 @@ def get_nucleotide_summaries(nuccore_ids):
 
 
 @st.cache_data(ttl=3600)
-def fetch_one_genbank(nuccore_id):
-    """
-    Fetch one nucleotide record in GenBank format.
-    """
+def fetch_one_genbank(
+    nuccore_id
+):
 
     params = {
         "db": "nuccore",
@@ -256,13 +275,15 @@ def fetch_one_genbank(nuccore_id):
 
 
 # ============================================================
-# GENBANK / CDS FUNCTIONS
+# GENBANK PARSING
 # ============================================================
 
-def extract_cds(genbank_record):
+def extract_cds(
+    genbank_record
+):
     """
-    Extract CDS coordinates and nucleotide sequence
-    from a GenBank record.
+    Extract CDS sequence, coordinates,
+    protein ID and product from GenBank.
     """
 
     lines = genbank_record.splitlines()
@@ -270,8 +291,11 @@ def extract_cds(genbank_record):
     cds_start = None
     cds_end = None
 
+    protein_id = None
+    product = None
+
     # --------------------------------------------------------
-    # Find CDS coordinates
+    # Find CDS location
     # --------------------------------------------------------
 
     for line in lines:
@@ -280,24 +304,79 @@ def extract_cds(genbank_record):
 
             location = line[21:].strip()
 
-            # Handle normal locations such as:
-            # 130..1419
-            if ".." in location:
+            numbers = re.findall(
+                r"\d+",
+                location
+            )
 
-                numbers = re.findall(
-                    r"\d+",
-                    location
+            if len(numbers) >= 2:
+
+                cds_start = int(
+                    numbers[0]
                 )
 
-                if len(numbers) >= 2:
-
-                    cds_start = int(numbers[0])
-                    cds_end = int(numbers[-1])
+                cds_end = int(
+                    numbers[-1]
+                )
 
             break
 
-    if cds_start is None or cds_end is None:
-        return None, None, None
+    if cds_start is None:
+        return None, None, None, None, None
+
+    # --------------------------------------------------------
+    # Find CDS qualifiers
+    # --------------------------------------------------------
+
+    in_cds = False
+
+    for line in lines:
+
+        if line.startswith("     CDS"):
+
+            in_cds = True
+            continue
+
+        if in_cds:
+
+            # End of CDS feature
+            if (
+                line.startswith("     ")
+                and not line.startswith(
+                    "                     "
+                )
+            ):
+                break
+
+            stripped = line.strip()
+
+            if stripped.startswith(
+                "/protein_id="
+            ):
+
+                protein_id = (
+                    stripped
+                    .split(
+                        "=",
+                        1
+                    )[1]
+                    .strip()
+                    .strip('"')
+                )
+
+            elif stripped.startswith(
+                "/product="
+            ):
+
+                product = (
+                    stripped
+                    .split(
+                        "=",
+                        1
+                    )[1]
+                    .strip()
+                    .strip('"')
+                )
 
     # --------------------------------------------------------
     # Find ORIGIN
@@ -313,7 +392,14 @@ def extract_cds(genbank_record):
             break
 
     if origin_index is None:
-        return None, None, None
+
+        return (
+            None,
+            None,
+            None,
+            protein_id,
+            product
+        )
 
     # --------------------------------------------------------
     # Extract nucleotide sequence
@@ -321,7 +407,9 @@ def extract_cds(genbank_record):
 
     sequence_parts = []
 
-    for line in lines[origin_index + 1:]:
+    for line in lines[
+        origin_index + 1:
+    ]:
 
         if line.startswith("//"):
             break
@@ -334,55 +422,131 @@ def extract_cds(genbank_record):
                 parts[1:]
             )
 
-    nucleotide_sequence = "".join(
-        sequence_parts
-    ).upper()
+    nucleotide_sequence = (
+        "".join(
+            sequence_parts
+        ).upper()
+    )
 
-    # --------------------------------------------------------
-    # Extract CDS
-    # --------------------------------------------------------
-
-    cds_sequence = nucleotide_sequence[
-        cds_start - 1:cds_end
-    ]
+    cds_sequence = (
+        nucleotide_sequence[
+            cds_start - 1:cds_end
+        ]
+    )
 
     return (
         cds_sequence,
         cds_start,
-        cds_end
+        cds_end,
+        protein_id,
+        product
     )
 
 
-def translate_cds(cds_sequence):
-    """
-    Translate nucleotide CDS into protein.
-    """
+def extract_locus_tag(
+    genbank_record
+):
+
+    for line in genbank_record.splitlines():
+
+        stripped = line.strip()
+
+        if stripped.startswith(
+            "/locus_tag="
+        ):
+
+            return (
+                stripped
+                .split(
+                    "=",
+                    1
+                )[1]
+                .strip()
+                .strip('"')
+            )
+
+    return None
+
+
+def translate_cds(
+    cds_sequence
+):
 
     protein_sequence = str(
-        Seq(cds_sequence).translate()
+        Seq(
+            cds_sequence
+        ).translate()
     )
 
-    # Remove terminal stop symbol
     if protein_sequence.endswith("*"):
-        protein_sequence = protein_sequence[:-1]
+
+        protein_sequence = (
+            protein_sequence[:-1]
+        )
 
     return protein_sequence
 
 
 # ============================================================
-# UNIPROT FUNCTIONS
+# UNIPROT
 # ============================================================
 
 @st.cache_data(ttl=3600)
-def search_uniprot(locus_tag, taxonomy_id):
-    """
-    Search UniProt using locus tag and taxonomy.
-    """
+def search_uniprot(
+    locus_tag,
+    taxonomy_id
+):
+
+    queries = [
+        (
+            f'gene:{locus_tag} '
+            f'AND organism_id:{taxonomy_id}'
+        ),
+        (
+            f'"{locus_tag}" '
+            f'AND organism_id:{taxonomy_id}'
+        )
+    ]
+
+    for query in queries:
+
+        params = {
+            "query": query,
+            "format": "json",
+            "size": 5
+        }
+
+        response = requests.get(
+            UNIPROT_SEARCH_URL,
+            params=params,
+            timeout=30
+        )
+
+        if response.status_code != 200:
+            continue
+
+        data = response.json()
+
+        if data.get(
+            "results"
+        ):
+
+            return data
+
+    return None
+
+
+@st.cache_data(ttl=3600)
+def search_uniprot_by_protein(
+    protein_id
+):
+
+    if not protein_id:
+        return None
 
     params = {
         "query": (
-            f"gene:{locus_tag} "
-            f"AND organism_id:{taxonomy_id}"
+            f"xref:RefSeq_{protein_id}"
         ),
         "format": "json",
         "size": 5
@@ -401,13 +565,12 @@ def search_uniprot(locus_tag, taxonomy_id):
 
 
 @st.cache_data(ttl=3600)
-def get_uniprot_record(uniprot_id):
-    """
-    Retrieve a complete UniProt record.
-    """
+def get_uniprot_record(
+    uniprot_id
+):
 
     url = (
-        f"https://rest.uniprot.org/"
+        "https://rest.uniprot.org/"
         f"uniprotkb/{uniprot_id}.json"
     )
 
@@ -423,14 +586,13 @@ def get_uniprot_record(uniprot_id):
 
 
 # ============================================================
-# INTERPRO FUNCTIONS
+# INTERPRO
 # ============================================================
 
 @st.cache_data(ttl=3600)
-def get_interpro_annotations(uniprot_id):
-    """
-    Retrieve InterPro annotations for a UniProt protein.
-    """
+def get_interpro_annotations(
+    uniprot_id
+):
 
     url = (
         f"{INTERPRO_BASE_URL}/entry/interpro/"
@@ -448,10 +610,13 @@ def get_interpro_annotations(uniprot_id):
     return response.json()
 
 
-def extract_interpro_details(result):
-    """
-    Extract useful information from an InterPro result.
-    """
+# ============================================================
+# INTERPRO PARSER
+# ============================================================
+
+def extract_interpro_details(
+    result
+):
 
     metadata = result.get(
         "metadata",
@@ -473,10 +638,6 @@ def extract_interpro_details(result):
         "Not available"
     )
 
-    # --------------------------------------------------------
-    # Member database information
-    # --------------------------------------------------------
-
     member_databases = []
 
     entries = result.get(
@@ -484,174 +645,57 @@ def extract_interpro_details(result):
         []
     )
 
-    if isinstance(entries, list):
-
-        for entry in entries:
-
-            if not isinstance(entry, dict):
-                continue
-
-            member_accession = (
-                entry.get("accession")
-                or entry.get("member_accession")
-            )
-
-            member_name = (
-                entry.get("name")
-                or entry.get("member_name")
-            )
-
-            if member_accession:
-
-                if member_name:
-                    member_databases.append(
-                        f"{member_accession} ({member_name})"
-                    )
-                else:
-                    member_databases.append(
-                        member_accession
-                    )
-
-    # Some InterPro responses use a different structure.
-    # Keep the result robust if entries are unavailable.
-
-    if not member_databases:
-
-        members = result.get(
-            "member_databases",
-            []
-        )
-
-        if isinstance(members, list):
-
-            for member in members:
-
-                if isinstance(member, dict):
-
-                    accession_value = member.get(
-                        "accession"
-                    )
-
-                    name_value = member.get(
-                        "name"
-                    )
-
-                    if accession_value:
-
-                        if name_value:
-                            member_databases.append(
-                                f"{accession_value} "
-                                f"({name_value})"
-                            )
-                        else:
-                            member_databases.append(
-                                accession_value
-                            )
-
-    # --------------------------------------------------------
-    # Protein / region information
-    # --------------------------------------------------------
-
-    matched_regions = []
-
-    proteins = result.get(
-        "proteins",
-        []
-    )
-
-    if isinstance(proteins, list):
-
-        for protein in proteins:
-
-            if not isinstance(protein, dict):
-                continue
-
-            entry_protein = protein.get(
-                "protein",
-                {}
-            )
-
-            if not isinstance(entry_protein, dict):
-                entry_protein = {}
-
-            protein_id = (
-                entry_protein.get(
-                    "accession"
-                )
-                or protein.get(
-                    "accession"
-                )
-            )
-
-            locations = protein.get(
-                "entry_protein_locations",
-                []
-            )
-
-            if isinstance(locations, list):
-
-                for location in locations:
-
-                    if not isinstance(
-                        location,
-                        dict
-                    ):
-                        continue
-
-                    start = location.get(
-                        "fragments",
-                        []
-                    )
-
-                    if start:
-                        matched_regions.append(
-                            str(start)
-                        )
-
-            if protein_id:
-                pass
-
-    # --------------------------------------------------------
-    # GO terms
-    # --------------------------------------------------------
-
-    go_terms = []
-
     if isinstance(
-        result.get("go_terms"),
+        entries,
         list
     ):
 
-        for go in result["go_terms"]:
+        for entry in entries:
 
-            if isinstance(go, dict):
+            if not isinstance(
+                entry,
+                dict
+            ):
+                continue
 
-                go_accession = go.get(
+            accession_value = (
+                entry.get(
                     "accession"
                 )
+                or entry.get(
+                    "member_accession"
+                )
+            )
 
-                go_name = go.get(
+            name_value = (
+                entry.get(
                     "name"
                 )
+                or entry.get(
+                    "member_name"
+                )
+            )
 
-                if go_accession:
+            if accession_value:
 
-                    if go_name:
-                        go_terms.append(
-                            f"{go_accession} ({go_name})"
-                        )
-                    else:
-                        go_terms.append(
-                            go_accession
-                        )
+                if name_value:
+
+                    member_databases.append(
+                        f"{accession_value} "
+                        f"({name_value})"
+                    )
+
+                else:
+
+                    member_databases.append(
+                        accession_value
+                    )
 
     return {
         "accession": accession,
         "name": name,
         "type": entry_type,
-        "member_databases": member_databases,
-        "matched_regions": matched_regions,
-        "go_terms": go_terms
+        "member_databases": member_databases
     }
 
 
@@ -659,19 +703,23 @@ def extract_interpro_details(result):
 # HEADER
 # ============================================================
 
-st.title("🧬 Bio API Tester")
+st.title(
+    "🧬 Bio API Tester"
+)
 
 st.write(
     "Retrieve, analyze, and annotate biological "
     "sequences using NCBI, UniProt, and InterPro."
 )
 
-st.markdown("### Workflow")
+st.markdown(
+    "### Workflow"
+)
 
 st.markdown(
     """
-`Locus ID` → `NCBI Gene` → `CDS` → `Protein`
-→ `UniProt` → `InterPro` → `Results`
+`Locus ID` → `NCBI Gene` → `RefSeq` → `CDS`
+→ `Protein` → `UniProt` → `InterPro` → `Results`
 """
 )
 
@@ -688,23 +736,24 @@ locus_id = st.text_input(
 )
 
 if not locus_id:
+
     st.info(
         "Enter a Locus ID to begin the analysis."
     )
+
     st.stop()
 
 
 locus_id = locus_id.strip()
 
-# Normalized locus tag for downstream searches
-locus_tag = locus_id.upper()
-
 
 # ============================================================
-# STEP 1 — GENE SEARCH
+# STEP 1 — NCBI GENE
 # ============================================================
 
-st.header("1️⃣ Gene Search")
+st.header(
+    "1️⃣ Gene Search"
+)
 
 gene_ids = search_gene(
     locus_id
@@ -721,7 +770,7 @@ if not gene_ids:
 
 
 # ------------------------------------------------------------
-# Handle multiple Gene IDs
+# Multiple NCBI records
 # ------------------------------------------------------------
 
 if len(gene_ids) > 1:
@@ -754,10 +803,6 @@ if not gene_data:
     st.stop()
 
 
-# ============================================================
-# GENE INFORMATION
-# ============================================================
-
 gene_name = gene_data.get(
     "name",
     "Not available"
@@ -789,23 +834,28 @@ chromosome = gene_data.get(
 )
 
 
-st.subheader("Gene Information")
+st.subheader(
+    "Gene Information"
+)
 
 col1, col2, col3 = st.columns(3)
 
 with col1:
+
     st.metric(
         "Gene",
         gene_name
     )
 
 with col2:
+
     st.metric(
         "Organism",
         organism_name
     )
 
 with col3:
+
     st.metric(
         "Taxonomy ID",
         taxonomy_id
@@ -825,34 +875,23 @@ st.write(
 )
 
 st.markdown(
-    f"[🔗 Open NCBI Gene record](https://www.ncbi.nlm.nih.gov/gene/{selected_gene_id})"
+    f"[🔗 Open NCBI Gene record]"
+    f"(https://www.ncbi.nlm.nih.gov/gene/"
+    f"{selected_gene_id})"
 )
 
 
 # ============================================================
-# STEP 2 — NUCLEOTIDE RECORDS
+# STEP 2 — LINKED NUCLEOTIDE RECORDS
 # ============================================================
 
-st.header("2️⃣ Nucleotide Records")
+st.header(
+    "2️⃣ Nucleotide Records"
+)
 
 nuccore_ids = get_nucleotide_links(
     selected_gene_id
 )
-
-if not nuccore_ids:
-
-    st.error(
-        "No linked nucleotide records were found."
-    )
-
-    st.stop()
-
-
-st.write(
-    f"Found {len(nuccore_ids)} "
-    f"linked nucleotide records."
-)
-
 
 nucleotide_summaries = (
     get_nucleotide_summaries(
@@ -861,200 +900,325 @@ nucleotide_summaries = (
 )
 
 
+st.write(
+    f"Found {len(nucleotide_summaries)} "
+    f"linked nucleotide records."
+)
+
+
 # ------------------------------------------------------------
-# Find RefSeq mRNA records
+# Accept BOTH NM_ and XM_
 # ------------------------------------------------------------
 
 refseq_records = [
     record
     for record in nucleotide_summaries
-    if record["accession"].startswith("NM_")
+    if (
+        record["accession"].startswith(
+            "NM_"
+        )
+        or
+        record["accession"].startswith(
+            "XM_"
+        )
+    )
 ]
 
 
-if not refseq_records:
+selected_record = None
 
-    st.warning(
-        "No RefSeq mRNA record was found "
-        "among the linked nucleotide records."
+
+if refseq_records:
+
+    if len(refseq_records) > 1:
+
+        st.warning(
+            "Multiple RefSeq transcript records "
+            "were found. Please select one."
+        )
+
+        selected_accession = st.selectbox(
+            "Select RefSeq transcript",
+            [
+                record["accession"]
+                for record in refseq_records
+            ]
+        )
+
+    else:
+
+        selected_accession = (
+            refseq_records[0]["accession"]
+        )
+
+    selected_record = next(
+        record
+        for record in refseq_records
+        if record["accession"]
+        == selected_accession
     )
 
-    st.stop()
-
-
-if len(refseq_records) > 1:
-
-    st.warning(
-        "Multiple RefSeq mRNA records were found."
+    st.success(
+        f"Selected transcript: "
+        f"{selected_record['accession']}"
     )
 
-    selected_accession = st.selectbox(
-        "Select RefSeq transcript",
-        [
-            record["accession"]
-            for record in refseq_records
-        ]
+    st.write(
+        f"**Transcript length:** "
+        f"{selected_record['length']} nt"
+    )
+
+    st.write(
+        f"**NCBI nucleotide ID:** "
+        f"{selected_record['uid']}"
     )
 
 else:
 
-    selected_accession = (
-        refseq_records[0]["accession"]
+    st.warning(
+        "No NM_ or XM_ RefSeq transcript "
+        "was found among the linked records."
+    )
+
+    st.info(
+        "The application will try to continue "
+        "using other available records."
     )
 
 
-selected_record = next(
+# ============================================================
+# REFSEQ PROTEIN DISCOVERY
+# ============================================================
+
+protein_records = [
     record
-    for record in refseq_records
-    if record["accession"] == selected_accession
-)
+    for record in nucleotide_summaries
+    if (
+        record["accession"].startswith(
+            "NP_"
+        )
+        or
+        record["accession"].startswith(
+            "XP_"
+        )
+    )
+]
 
 
-st.write(
-    f"**Selected transcript:** "
-    f"{selected_record['accession']}"
-)
-
-st.write(
-    f"**Transcript length:** "
-    f"{selected_record['length']} nt"
-)
-
-st.write(
-    f"**NCBI nucleotide ID:** "
-    f"{selected_record['uid']}"
-)
-
-st.markdown(
-    f"[🔗 Open RefSeq record](https://www.ncbi.nlm.nih.gov/nuccore/{selected_record['accession']})"
-)
+selected_protein_record = None
 
 
-# ============================================================
-# FETCH GENBANK
-# ============================================================
+if protein_records:
 
-genbank_record = fetch_one_genbank(
-    selected_record["uid"]
-)
+    if len(protein_records) > 1:
 
-if not genbank_record:
+        protein_accession = st.selectbox(
+            "Select RefSeq protein",
+            [
+                record["accession"]
+                for record in protein_records
+            ]
+        )
 
-    st.error(
-        "Could not retrieve the GenBank record."
+    else:
+
+        protein_accession = (
+            protein_records[0]["accession"]
+        )
+
+    selected_protein_record = next(
+        record
+        for record in protein_records
+        if record["accession"]
+        == protein_accession
     )
 
-    st.stop()
-
-
-st.success(
-    f"Successfully retrieved "
-    f"{selected_record['accession']}."
-)
-
-
-with st.expander("View GenBank record"):
-
-    st.code(
-        genbank_record,
-        language="text"
+    st.write(
+        f"**RefSeq protein:** "
+        f"{selected_protein_record['accession']}"
     )
 
 
 # ============================================================
-# STEP 3 — CDS
+# STEP 3 — GENBANK / CDS
 # ============================================================
 
-st.header("3️⃣ Coding Sequence")
-
-(
-    cds_sequence,
-    cds_start,
-    cds_end
-) = extract_cds(
-    genbank_record
+st.header(
+    "3️⃣ Coding Sequence"
 )
 
+cds_sequence = None
+cds_start = None
+cds_end = None
+protein_id = None
+product = None
+genbank_record = None
 
-if not cds_sequence:
 
-    st.error(
-        "Could not extract the CDS "
-        "from the GenBank record."
+if selected_record:
+
+    genbank_record = fetch_one_genbank(
+        selected_record["uid"]
     )
 
-    st.stop()
+    if genbank_record:
+
+        (
+            cds_sequence,
+            cds_start,
+            cds_end,
+            protein_id,
+            product
+        ) = extract_cds(
+            genbank_record
+        )
+
+        if cds_sequence:
+
+            st.success(
+                "CDS extracted successfully."
+            )
+
+            st.write(
+                f"**CDS coordinates:** "
+                f"{cds_start}..{cds_end}"
+            )
+
+            st.write(
+                f"**CDS length:** "
+                f"{len(cds_sequence)} nt"
+            )
+
+            if protein_id:
+
+                st.write(
+                    f"**Protein ID:** "
+                    f"{protein_id}"
+                )
+
+        else:
+
+            st.warning(
+                "The transcript was found, "
+                "but a CDS could not be extracted."
+            )
+
+        with st.expander(
+            "View GenBank record"
+        ):
+
+            st.code(
+                genbank_record,
+                language="text"
+            )
+
+    else:
+
+        st.warning(
+            "Could not retrieve the GenBank "
+            "transcript record."
+        )
 
 
-st.success(
-    "CDS extracted successfully."
-)
+# ============================================================
+# NUCLEOTIDE FASTA
+# ============================================================
 
-st.write(
-    f"**CDS coordinates:** "
-    f"{cds_start}..{cds_end}"
-)
-
-st.write(
-    f"**CDS length:** "
-    f"{len(cds_sequence)} nt"
-)
+nucleotide_fasta = None
 
 
-# ------------------------------------------------------------
-# Nucleotide FASTA
-# ------------------------------------------------------------
+if cds_sequence:
 
-nucleotide_fasta = (
-    f">{locus_id}_CDS\n"
-    f"{format_fasta(cds_sequence)}"
-)
-
-with st.expander(
-    "🧬 View Nucleotide FASTA",
-    expanded=True
-):
-
-    st.code(
-        nucleotide_fasta,
-        language="text"
+    nucleotide_fasta = (
+        f">{locus_id}_CDS\n"
+        f"{format_fasta(cds_sequence)}"
     )
+
+    with st.expander(
+        "🧬 View Nucleotide FASTA",
+        expanded=True
+    ):
+
+        st.code(
+            nucleotide_fasta,
+            language="text"
+        )
 
 
 # ============================================================
 # STEP 4 — PROTEIN
 # ============================================================
 
-st.header("4️⃣ Protein Sequence")
-
-protein_sequence = translate_cds(
-    cds_sequence
+st.header(
+    "4️⃣ Protein Sequence"
 )
 
-
-st.success(
-    "CDS translated successfully."
-)
-
-st.write(
-    f"**Protein length:** "
-    f"{len(protein_sequence)} aa"
-)
+protein_sequence = None
 
 
-protein_fasta = (
-    f">{locus_id}_protein\n"
-    f"{format_fasta(protein_sequence)}"
-)
+# ------------------------------------------------------------
+# Preferred route: translate CDS
+# ------------------------------------------------------------
 
-with st.expander(
-    "🧬 View Protein FASTA",
-    expanded=True
-):
+if cds_sequence:
 
-    st.code(
-        protein_fasta,
-        language="text"
+    protein_sequence = translate_cds(
+        cds_sequence
+    )
+
+    st.success(
+        "CDS translated successfully."
+    )
+
+    st.write(
+        f"**Protein length:** "
+        f"{len(protein_sequence)} aa"
+    )
+
+
+# ------------------------------------------------------------
+# Protein FASTA
+# ------------------------------------------------------------
+
+protein_fasta = None
+
+
+if protein_sequence:
+
+    protein_fasta = (
+        f">{locus_id}_protein\n"
+        f"{format_fasta(protein_sequence)}"
+    )
+
+    with st.expander(
+        "🧬 View Protein FASTA",
+        expanded=True
+    ):
+
+        st.code(
+            protein_fasta,
+            language="text"
+        )
+
+elif selected_protein_record:
+
+    st.info(
+        "A RefSeq protein record was found, "
+        "but a transcript CDS was not available "
+        "for direct translation."
+    )
+
+    st.markdown(
+        f"[🔗 Open RefSeq protein record]"
+        f"(https://www.ncbi.nlm.nih.gov/protein/"
+        f"{selected_protein_record['accession']})"
+    )
+
+else:
+
+    st.warning(
+        "No protein sequence is currently available "
+        "from the selected NCBI records."
     )
 
 
@@ -1062,27 +1226,44 @@ with st.expander(
 # STEP 5 — UNIPROT
 # ============================================================
 
-st.header("5️⃣ UniProt")
+st.header(
+    "5️⃣ UniProt"
+)
 
+uniprot_data = None
+uniprot_id = None
+uniprot_record = None
+uniprot_sequence = None
+sequences_match = False
+
+
+# ------------------------------------------------------------
+# Search by locus tag first
+# ------------------------------------------------------------
 
 uniprot_data = search_uniprot(
-    locus_tag,
+    locus_id,
     taxonomy_id
 )
 
 
-if not uniprot_data:
+# ------------------------------------------------------------
+# If no result, try RefSeq protein accession
+# ------------------------------------------------------------
 
-    st.warning(
-        "UniProt search could not be completed."
+if (
+    not uniprot_data
+    and protein_id
+):
+
+    uniprot_data = (
+        search_uniprot_by_protein(
+            protein_id
+        )
     )
 
-    uniprot_id = None
-    uniprot_record = None
-    uniprot_sequence = None
-    sequences_match = False
 
-else:
+if uniprot_data:
 
     uniprot_results = (
         uniprot_data.get(
@@ -1091,27 +1272,15 @@ else:
         )
     )
 
-    if not uniprot_results:
+    if uniprot_results:
 
-        st.warning(
-            "No UniProt record was found."
-        )
-
-        uniprot_id = None
-        uniprot_record = None
-        uniprot_sequence = None
-        sequences_match = False
-
-    else:
-
-        # ----------------------------------------------------
-        # Multiple UniProt records
-        # ----------------------------------------------------
-
-        if len(uniprot_results) > 1:
+        if len(
+            uniprot_results
+        ) > 1:
 
             st.warning(
-                "Multiple UniProt records were found."
+                "Multiple UniProt records "
+                "were found."
             )
 
             uniprot_options = [
@@ -1130,32 +1299,24 @@ else:
 
             uniprot_id = (
                 uniprot_results[0]
-                .get("primaryAccession")
+                .get(
+                    "primaryAccession"
+                )
             )
 
-        uniprot_record = get_uniprot_record(
-            uniprot_id
+        uniprot_record = (
+            get_uniprot_record(
+                uniprot_id
+            )
         )
 
-        if not uniprot_record:
+        if uniprot_record:
 
-            st.warning(
-                "Could not retrieve the "
-                "UniProt record."
-            )
-
-            uniprot_sequence = None
-            sequences_match = False
-
-        else:
-
-            # ------------------------------------------------
-            # UniProt information
-            # ------------------------------------------------
-
-            entry_name = uniprot_record.get(
-                "uniProtkbId",
-                "Not available"
+            entry_name = (
+                uniprot_record.get(
+                    "uniProtkbId",
+                    "Not available"
+                )
             )
 
             sequence_info = (
@@ -1172,79 +1333,76 @@ else:
                 )
             )
 
-            uniprot_length = len(
-                uniprot_sequence
+            if protein_sequence:
+
+                sequences_match = (
+                    protein_sequence
+                    == uniprot_sequence
+                )
+
+            col1, col2, col3 = (
+                st.columns(3)
             )
-
-            sequences_match = (
-                protein_sequence ==
-                uniprot_sequence
-            )
-
-
-            col1, col2, col3 = st.columns(3)
 
             with col1:
+
                 st.metric(
                     "UniProt ID",
                     uniprot_id
                 )
 
             with col2:
+
                 st.metric(
                     "Entry Name",
                     entry_name
                 )
 
             with col3:
+
                 st.metric(
                     "Protein Length",
-                    f"{uniprot_length} aa"
+                    f"{len(uniprot_sequence)} aa"
                 )
 
+            if protein_sequence:
 
-            st.write(
-                f"**Our translated protein:** "
-                f"{len(protein_sequence)} aa"
-            )
+                if sequences_match:
 
-            st.write(
-                f"**UniProt protein:** "
-                f"{uniprot_length} aa"
-            )
+                    st.success(
+                        "Protein sequences are identical."
+                    )
 
+                else:
 
-            if sequences_match:
-
-                st.success(
-                    "Protein sequences are identical."
-                )
-
-            else:
-
-                st.warning(
-                    "Protein sequences are not identical."
-                )
-
+                    st.warning(
+                        "Protein sequences are "
+                        "not identical."
+                    )
 
             st.markdown(
-                f"[🔗 Open UniProt record](https://www.uniprot.org/uniprotkb/{uniprot_id})"
+                f"[🔗 Open UniProt record]"
+                f"(https://www.uniprot.org/uniprotkb/"
+                f"{uniprot_id})"
             )
 
+        else:
 
-            uniprot_fasta = (
-                f">{uniprot_id}\n"
-                f"{format_fasta(uniprot_sequence)}"
+            st.warning(
+                "UniProt record could not be retrieved."
             )
 
-            with st.expander(
-                "View UniProt protein sequence"
-            ):
+    else:
 
-                st.code(
-                    uniprot_fasta,
-                    language="text"
-                )
+        st.info(
+            "No UniProt record was found."
+        )
+
+else:
+
+    st.info(
+        "No UniProt record was found for this gene."
+    )
 
 
 # ============================================================
@@ -1253,16 +1411,44 @@ else:
 
 st.divider()
 
-st.header("📊 Analysis Summary")
+st.header(
+    "📊 Analysis Summary"
+)
+
 
 summary_table = pd.DataFrame([
     {
         "Gene": gene_name,
         "Organism": organism_name,
         "NCBI Gene ID": selected_gene_id,
-        "RefSeq": selected_record["accession"],
-        "CDS Length": f"{len(cds_sequence)} nt",
-        "Protein Length": f"{len(protein_sequence)} aa",
+        "RefSeq": (
+            selected_record["accession"]
+            if selected_record
+            else "Not available"
+        ),
+        "Protein ID": (
+            protein_id
+            if protein_id
+            else (
+                selected_protein_record[
+                    "accession"
+                ]
+                if selected_protein_record
+                else "Not available"
+            )
+        ),
+        "CDS Length": (
+            f"{len(cds_sequence)} nt"
+            if cds_sequence
+            else "Not available"
+        ),
+        "Protein Length": (
+            f"{len(protein_sequence)} aa"
+            if protein_sequence
+            else (
+                "Not available"
+            )
+        ),
         "UniProt": (
             uniprot_id
             if uniprot_id
@@ -1283,8 +1469,9 @@ st.dataframe(
 # STEP 6 — INTERPRO
 # ============================================================
 
-st.header("6️⃣ InterPro")
-
+st.header(
+    "6️⃣ InterPro"
+)
 
 interpro_data = None
 interpro_results = []
@@ -1292,8 +1479,10 @@ interpro_results = []
 
 if uniprot_id:
 
-    interpro_data = get_interpro_annotations(
-        uniprot_id
+    interpro_data = (
+        get_interpro_annotations(
+            uniprot_id
+        )
     )
 
     if interpro_data:
@@ -1313,14 +1502,12 @@ if interpro_results:
         f"InterPro annotation(s)."
     )
 
-    # --------------------------------------------------------
-    # Display each InterPro result
-    # --------------------------------------------------------
-
     for result in interpro_results:
 
-        details = extract_interpro_details(
-            result
+        details = (
+            extract_interpro_details(
+                result
+            )
         )
 
         st.subheader(
@@ -1337,72 +1524,38 @@ if interpro_results:
             f"{details['type']}"
         )
 
-        # ----------------------------------------------------
-        # Member databases
-        # ----------------------------------------------------
-
-        if details["member_databases"]:
+        if details[
+            "member_databases"
+        ]:
 
             st.write(
                 "**Member databases:**"
             )
 
             for member in (
-                details["member_databases"]
+                details[
+                    "member_databases"
+                ]
             ):
 
                 st.write(
                     f"- {member}"
                 )
 
-        # ----------------------------------------------------
-        # Matched regions
-        # ----------------------------------------------------
-
-        if details["matched_regions"]:
-
-            st.write(
-                "**Matched regions:**"
-            )
-
-            for region in (
-                details["matched_regions"]
-            ):
-
-                st.write(
-                    f"- {region}"
-                )
-
-        # ----------------------------------------------------
-        # GO terms
-        # ----------------------------------------------------
-
-        if details["go_terms"]:
-
-            st.write(
-                "**GO terms:**"
-            )
-
-            for go_term in (
-                details["go_terms"]
-            ):
-
-                st.write(
-                    f"- {go_term}"
-                )
-
         st.markdown(
-            f"[🔗 Open InterPro entry](https://www.ebi.ac.uk/interpro/entry/InterPro/{details['accession']})"
+            f"[🔗 Open InterPro entry]"
+            f"(https://www.ebi.ac.uk/interpro/"
+            f"entry/InterPro/"
+            f"{details['accession']})"
         )
 
         st.divider()
-
 
 else:
 
     st.info(
         "No InterPro annotations were found "
-        "for this UniProt protein."
+        "for the available UniProt protein."
     )
 
 
@@ -1410,8 +1563,9 @@ else:
 # STEP 7 — FINAL ANNOTATION TABLE
 # ============================================================
 
-st.header("7️⃣ Final Annotation Table")
-
+st.header(
+    "7️⃣ Final Annotation Table"
+)
 
 annotation_rows = []
 
@@ -1430,35 +1584,66 @@ annotation_rows.append({
 
 
 # ------------------------------------------------------------
-# RefSeq
+# RefSeq transcript
 # ------------------------------------------------------------
 
-annotation_rows.append({
-    "Source": "RefSeq",
-    "Record ID": selected_record["accession"],
-    "Annotation": selected_record["title"],
-    "Organism": organism_name,
-    "Details": (
-        f"CDS: {cds_start}..{cds_end}; "
-        f"Length: {len(cds_sequence)} nt"
+if selected_record:
+
+    annotation_rows.append({
+        "Source": "RefSeq Transcript",
+        "Record ID": selected_record[
+            "accession"
+        ],
+        "Annotation": selected_record[
+            "title"
+        ],
+        "Organism": organism_name,
+        "Details": (
+            f"CDS: "
+            f"{cds_start}..{cds_end}; "
+            f"Length: "
+            f"{len(cds_sequence)} nt"
+            if cds_sequence
+            else "CDS not available"
+        )
+    })
+
+
+# ------------------------------------------------------------
+# RefSeq protein
+# ------------------------------------------------------------
+
+final_protein_id = (
+    protein_id
+    if protein_id
+    else (
+        selected_protein_record[
+            "accession"
+        ]
+        if selected_protein_record
+        else None
     )
-})
+)
 
 
-# ------------------------------------------------------------
-# Protein / RefSeq
-# ------------------------------------------------------------
+if final_protein_id:
 
-annotation_rows.append({
-    "Source": "RefSeq Protein",
-    "Record ID": "NP_171609.1",
-    "Annotation": "Translated protein",
-    "Organism": organism_name,
-    "Details": (
-        f"Protein length: "
-        f"{len(protein_sequence)} aa"
-    )
-})
+    annotation_rows.append({
+        "Source": "RefSeq Protein",
+        "Record ID": final_protein_id,
+        "Annotation": (
+            product
+            if product
+            else "RefSeq protein"
+        ),
+        "Organism": organism_name,
+        "Details": (
+            f"Protein length: "
+            f"{len(protein_sequence)} aa"
+            if protein_sequence
+            else "Protein sequence available"
+        )
+    })
 
 
 # ------------------------------------------------------------
@@ -1487,6 +1672,16 @@ if uniprot_id:
         )
     })
 
+else:
+
+    annotation_rows.append({
+        "Source": "UniProt",
+        "Record ID": "Not found",
+        "Annotation": "Not available",
+        "Organism": organism_name,
+        "Details": "No UniProt record found"
+    })
+
 
 # ------------------------------------------------------------
 # InterPro
@@ -1494,27 +1689,39 @@ if uniprot_id:
 
 for result in interpro_results:
 
-    details = extract_interpro_details(
-        result
+    details = (
+        extract_interpro_details(
+            result
+        )
     )
 
-    extra_details = details["type"]
+    detail_text = details[
+        "type"
+    ]
 
-    if details["member_databases"]:
+    if details[
+        "member_databases"
+    ]:
 
-        extra_details += (
+        detail_text += (
             "; Members: "
             + ", ".join(
-                details["member_databases"]
+                details[
+                    "member_databases"
+                ]
             )
         )
 
     annotation_rows.append({
         "Source": "InterPro",
-        "Record ID": details["accession"],
-        "Annotation": details["name"],
+        "Record ID": details[
+            "accession"
+        ],
+        "Annotation": details[
+            "name"
+        ],
         "Organism": organism_name,
-        "Details": extra_details
+        "Details": detail_text
     })
 
 
@@ -1531,60 +1738,82 @@ st.dataframe(
 
 
 # ============================================================
-# STEP 8 — DOWNLOAD RESULTS
+# STEP 8 — DOWNLOADS
 # ============================================================
 
-st.header("8️⃣ Download Results")
+st.header(
+    "8️⃣ Download Results"
+)
 
 
-# ------------------------------------------------------------
-# FASTA downloads
-# ------------------------------------------------------------
-
-download_col1, download_col2 = st.columns(2)
+download_col1, download_col2 = (
+    st.columns(2)
+)
 
 
 with download_col1:
 
-    st.download_button(
-        label="⬇️ Download Nucleotide FASTA",
-        data=nucleotide_fasta,
-        file_name=(
-            f"{locus_id}_CDS.fasta"
-        ),
-        mime="text/plain",
-        use_container_width=True
-    )
+    if nucleotide_fasta:
+
+        st.download_button(
+            label="⬇️ Download Nucleotide FASTA",
+            data=nucleotide_fasta,
+            file_name=(
+                f"{locus_id}_CDS.fasta"
+            ),
+            mime="text/plain",
+            use_container_width=True
+        )
+
+    else:
+
+        st.button(
+            "⬇️ Nucleotide FASTA unavailable",
+            disabled=True,
+            use_container_width=True
+        )
 
 
 with download_col2:
 
-    st.download_button(
-        label="⬇️ Download Protein FASTA",
-        data=protein_fasta,
-        file_name=(
-            f"{locus_id}_protein.fasta"
-        ),
-        mime="text/plain",
-        use_container_width=True
+    if protein_fasta:
+
+        st.download_button(
+            label="⬇️ Download Protein FASTA",
+            data=protein_fasta,
+            file_name=(
+                f"{locus_id}_protein.fasta"
+            ),
+            mime="text/plain",
+            use_container_width=True
+        )
+
+    else:
+
+        st.button(
+            "⬇️ Protein FASTA unavailable",
+            disabled=True,
+            use_container_width=True
+        )
+
+
+annotation_csv = (
+    annotation_table.to_csv(
+        index=False
     )
-
-
-# ------------------------------------------------------------
-# Annotation downloads
-# ------------------------------------------------------------
-
-annotation_csv = annotation_table.to_csv(
-    index=False
 )
 
-annotation_json = annotation_table.to_json(
-    orient="records",
-    indent=2
+annotation_json = (
+    annotation_table.to_json(
+        orient="records",
+        indent=2
+    )
 )
 
 
-download_col3, download_col4 = st.columns(2)
+download_col3, download_col4 = (
+    st.columns(2)
+)
 
 
 with download_col3:
