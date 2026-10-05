@@ -611,17 +611,205 @@ def get_interpro_annotations(
 
 
 # ============================================================
-# INTERPRO PARSER
+# UNIPROT / INTERPRO ANNOTATION PARSERS
 # ============================================================
 
-def extract_interpro_details(
-    result
-):
+def get_uniprot_annotation_details(record):
+    """Extract UniProt's own annotation/evidence fields."""
 
-    metadata = result.get(
-        "metadata",
+    if not record:
+        return {
+            "annotation_score": "Not available",
+            "protein_name": "Not available",
+            "function": "Not available",
+            "go_terms": [],
+            "evidence": []
+        }
+
+    annotation_score = record.get(
+        "annotationScore",
+        "Not available"
+    )
+
+    protein_name = "Not available"
+    description = record.get(
+        "proteinDescription",
         {}
     )
+
+    recommended = description.get(
+        "recommendedName",
+        {}
+    )
+
+    full_name = recommended.get(
+        "fullName",
+        {}
+    )
+
+    if isinstance(full_name, dict):
+        protein_name = full_name.get(
+            "value",
+            "Not available"
+        )
+    elif full_name:
+        protein_name = str(full_name)
+
+    function_texts = []
+    evidence_texts = []
+
+    for comment in record.get("comments", []):
+        if not isinstance(comment, dict):
+            continue
+
+        comment_type = comment.get("commentType", "")
+
+        if comment_type == "FUNCTION":
+            texts = comment.get("texts", [])
+            for item in texts:
+                if isinstance(item, dict):
+                    value = item.get("value")
+                    if value:
+                        function_texts.append(value)
+
+        elif comment_type in {
+            "CATALYTIC ACTIVITY",
+            "PATHWAY",
+            "SUBUNIT",
+            "SUBCELLULAR LOCATION"
+        }:
+            texts = comment.get("texts", [])
+            for item in texts:
+                if isinstance(item, dict):
+                    value = item.get("value")
+                    if value:
+                        evidence_texts.append(
+                            f"{comment_type}: {value}"
+                        )
+
+    go_terms = []
+
+    for xref in record.get(
+        "uniProtKBCrossReferences",
+        []
+    ):
+        if not isinstance(xref, dict):
+            continue
+        if xref.get("database") != "GO":
+            continue
+
+        properties = xref.get("properties", [])
+        term = xref.get("id", "")
+        for prop in properties:
+            if isinstance(prop, dict):
+                key = prop.get("key", "")
+                value = prop.get("value", "")
+                if key and value:
+                    term = f"{term} ({value})"
+                    break
+        if term:
+            go_terms.append(term)
+
+    return {
+        "annotation_score": annotation_score,
+        "protein_name": protein_name,
+        "function": " ".join(function_texts) if function_texts else "Not available",
+        "go_terms": go_terms,
+        "evidence": evidence_texts
+    }
+
+
+def _recursive_find_values(obj, target_keys):
+    """Find values for selected keys anywhere in a nested API response."""
+
+    found = []
+
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            if key.lower() in target_keys:
+                found.append(value)
+            found.extend(
+                _recursive_find_values(
+                    value,
+                    target_keys
+                )
+            )
+
+    elif isinstance(obj, list):
+        for item in obj:
+            found.extend(
+                _recursive_find_values(
+                    item,
+                    target_keys
+                )
+            )
+
+    return found
+
+
+def _format_interpro_locations(result):
+    """Extract InterPro matched amino-acid regions when present."""
+
+    locations = _recursive_find_values(
+        result,
+        {"location", "locations", "fragments"}
+    )
+
+    formatted = []
+
+    def walk(value):
+        if isinstance(value, dict):
+            start = value.get("start")
+            end = value.get("end")
+            if start is not None and end is not None:
+                formatted.append(f"{start}–{end} aa")
+            for child in value.values():
+                walk(child)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child)
+
+    for location in locations:
+        walk(location)
+
+    return list(dict.fromkeys(formatted))
+
+
+def _format_interpro_scores(result):
+    """Extract score/E-value fields only when InterPro actually supplies them."""
+
+    score_keys = {
+        "score",
+        "evalue",
+        "e_value",
+        "e-value",
+        "bit_score",
+        "bitscore"
+    }
+
+    values = []
+
+    def walk(obj):
+        if isinstance(obj, dict):
+            for key, value in obj.items():
+                if key.lower() in score_keys and value not in (None, ""):
+                    values.append(
+                        f"{key}: {value}"
+                    )
+                else:
+                    walk(value)
+        elif isinstance(obj, list):
+            for item in obj:
+                walk(item)
+
+    walk(result)
+    return list(dict.fromkeys(values))
+
+
+def extract_interpro_details(result):
+    """Extract InterPro entry, member signatures, regions and native evidence."""
+
+    metadata = result.get("metadata", {})
 
     accession = metadata.get(
         "accession",
@@ -640,62 +828,130 @@ def extract_interpro_details(
 
     member_databases = []
 
-    entries = result.get(
-        "entries",
-        []
-    )
+    entries = result.get("entries", [])
 
-    if isinstance(
-        entries,
-        list
-    ):
-
+    if isinstance(entries, list):
         for entry in entries:
-
-            if not isinstance(
-                entry,
-                dict
-            ):
+            if not isinstance(entry, dict):
                 continue
 
             accession_value = (
-                entry.get(
-                    "accession"
-                )
-                or entry.get(
-                    "member_accession"
-                )
+                entry.get("accession")
+                or entry.get("member_accession")
             )
 
             name_value = (
-                entry.get(
-                    "name"
-                )
-                or entry.get(
-                    "member_name"
-                )
+                entry.get("name")
+                or entry.get("member_name")
             )
 
             if accession_value:
-
                 if name_value:
-
                     member_databases.append(
-                        f"{accession_value} "
-                        f"({name_value})"
+                        f"{accession_value} ({name_value})"
                     )
-
                 else:
-
                     member_databases.append(
-                        accession_value
+                        str(accession_value)
                     )
+
+    scores = _format_interpro_scores(result)
+    locations = _format_interpro_locations(result)
 
     return {
         "accession": accession,
         "name": name,
         "type": entry_type,
-        "member_databases": member_databases
+        "member_databases": list(dict.fromkeys(member_databases)),
+        "scores": scores,
+        "locations": locations
+    }
+
+
+def build_final_annotation(
+    description,
+    uniprot_details,
+    interpro_details_list
+):
+    """Create a conservative putative name/function from database evidence."""
+
+    original_text = (description or "").lower()
+    uniprot_name = uniprot_details.get(
+        "protein_name",
+        "Not available"
+    )
+
+    hypothetical_terms = {
+        "hypothetical",
+        "uncharacterized",
+        "unknown function",
+        "putative protein"
+    }
+
+    has_specific_uniprot_name = (
+        uniprot_name
+        and uniprot_name != "Not available"
+        and not any(
+            term in uniprot_name.lower()
+            for term in hypothetical_terms
+        )
+    )
+
+    if has_specific_uniprot_name:
+        final_name = uniprot_name
+        name_basis = "UniProt protein annotation"
+    else:
+        domain_name = None
+        for item in interpro_details_list:
+            candidate = item.get("name", "")
+            if candidate and candidate != "Not available":
+                domain_name = candidate
+                break
+
+        if domain_name:
+            final_name = f"Putative {domain_name}"
+            name_basis = "InterPro domain/family evidence"
+        elif "hypothetical" in original_text or "uncharacterized" in original_text:
+            final_name = "Putative uncharacterized protein"
+            name_basis = "No specific domain name available"
+        else:
+            final_name = description or "Protein annotation unavailable"
+            name_basis = "NCBI annotation"
+
+    function = uniprot_details.get(
+        "function",
+        "Not available"
+    )
+
+    if function == "Not available":
+        go_terms = uniprot_details.get("go_terms", [])
+        if go_terms:
+            function = (
+                "Putative function supported by UniProt Gene Ontology "
+                "annotations: " + "; ".join(go_terms[:5])
+            )
+        elif interpro_details_list:
+            domain_names = [
+                item.get("name")
+                for item in interpro_details_list
+                if item.get("name")
+                and item.get("name") != "Not available"
+            ]
+            if domain_names:
+                function = (
+                    "Putative function associated with the detected "
+                    "InterPro domain/family: "
+                    + "; ".join(dict.fromkeys(domain_names[:3]))
+                )
+            else:
+                function = "Function could not be assigned from available database evidence."
+        else:
+            function = "Function could not be assigned from available database evidence."
+
+    return {
+        "final_name": final_name,
+        "function": function,
+        "basis": name_basis
     }
 
 
@@ -1235,6 +1491,13 @@ uniprot_id = None
 uniprot_record = None
 uniprot_sequence = None
 sequences_match = False
+uniprot_details = {
+    "annotation_score": "Not available",
+    "protein_name": "Not available",
+    "function": "Not available",
+    "go_terms": [],
+    "evidence": []
+}
 
 
 # ------------------------------------------------------------
@@ -1312,6 +1575,10 @@ if uniprot_data:
 
         if uniprot_record:
 
+            uniprot_details = get_uniprot_annotation_details(
+                uniprot_record
+            )
+
             entry_name = (
                 uniprot_record.get(
                     "uniProtkbId",
@@ -1376,9 +1643,36 @@ if uniprot_data:
                 else:
 
                     st.warning(
-                        "Protein sequences are "
-                        "not identical."
+                        "Protein sequences are not identical."
                     )
+
+            st.write(
+                f"**UniProt Annotation Score:** "
+                f"{uniprot_details['annotation_score']} / 5"
+                if uniprot_details["annotation_score"] != "Not available"
+                else "**UniProt Annotation Score:** Not available"
+            )
+
+            st.write(
+                f"**UniProt Protein Name:** "
+                f"{uniprot_details['protein_name']}"
+            )
+
+            if uniprot_details["function"] != "Not available":
+                st.write(
+                    f"**UniProt Function:** "
+                    f"{uniprot_details['function']}"
+                )
+
+            if uniprot_details["evidence"]:
+                with st.expander("View UniProt functional evidence"):
+                    for item in uniprot_details["evidence"]:
+                        st.write(f"- {item}")
+
+            if uniprot_details["go_terms"]:
+                with st.expander("View UniProt GO annotations"):
+                    for term in uniprot_details["go_terms"]:
+                        st.write(f"- {term}")
 
             st.markdown(
                 f"[🔗 Open UniProt record]"
@@ -1475,6 +1769,7 @@ st.header(
 
 interpro_data = None
 interpro_results = []
+parsed_interpro_details = []
 
 
 if uniprot_id:
@@ -1498,58 +1793,87 @@ if uniprot_id:
 if interpro_results:
 
     st.success(
-        f"Found {len(interpro_results)} "
-        f"InterPro annotation(s)."
+        f"Found {len(interpro_results)} InterPro annotation(s)."
     )
+
+    parsed_interpro_details = []
 
     for result in interpro_results:
 
-        details = (
-            extract_interpro_details(
-                result
+        details = extract_interpro_details(result)
+        parsed_interpro_details.append(details)
+
+    interpro_display_rows = []
+
+    for details in parsed_interpro_details:
+        interpro_display_rows.append({
+            "InterPro ID": details["accession"],
+            "Domain / Family": details["name"],
+            "Type": details["type"],
+            "InterPro Match Evidence": (
+                "; ".join(details["scores"])
+                if details["scores"]
+                else "Not provided by InterPro API"
+            ),
+            "Matched Region": (
+                "; ".join(details["locations"])
+                if details["locations"]
+                else "Not provided"
+            ),
+            "Member Database": (
+                "; ".join(details["member_databases"])
+                if details["member_databases"]
+                else "Not available"
             )
-        )
+        })
 
-        st.subheader(
-            details["name"]
-        )
+    interpro_display_table = pd.DataFrame(
+        interpro_display_rows
+    )
 
-        st.write(
-            f"**InterPro ID:** "
-            f"{details['accession']}"
-        )
+    st.dataframe(
+        interpro_display_table,
+        use_container_width=True,
+        hide_index=True
+    )
 
-        st.write(
-            f"**Type:** "
-            f"{details['type']}"
-        )
-
-        if details[
-            "member_databases"
-        ]:
+    for details in parsed_interpro_details:
+        with st.expander(
+            f"{details['accession']} — {details['name']}"
+        ):
+            st.write(
+                f"**Type:** {details['type']}"
+            )
 
             st.write(
-                "**Member databases:**"
+                "**InterPro match evidence:** "
+                + (
+                    "; ".join(details["scores"])
+                    if details["scores"]
+                    else "Not provided by InterPro API"
+                )
             )
 
-            for member in (
-                details[
-                    "member_databases"
-                ]
-            ):
-
-                st.write(
-                    f"- {member}"
+            st.write(
+                "**Matched region:** "
+                + (
+                    "; ".join(details["locations"])
+                    if details["locations"]
+                    else "Not provided"
                 )
+            )
 
-        st.markdown(
-            f"[🔗 Open InterPro entry]"
-            f"(https://www.ebi.ac.uk/interpro/"
-            f"entry/InterPro/"
-            f"{details['accession']})"
-        )
+            if details["member_databases"]:
+                st.write("**Member databases:**")
+                for member in details["member_databases"]:
+                    st.write(f"- {member}")
 
-        st.divider()
+            st.markdown(
+                f"[🔗 Open InterPro entry]"
+                f"(https://www.ebi.ac.uk/interpro/"
+                f"entry/InterPro/"
+                f"{details['accession']})"
+            )
 
 else:
 
@@ -1567,177 +1891,165 @@ st.header(
     "7️⃣ Final Annotation Table"
 )
 
+# ------------------------------------------------------------
+# Final functional interpretation
+# ------------------------------------------------------------
+
+final_annotation = build_final_annotation(
+    description,
+    uniprot_details,
+    parsed_interpro_details
+)
+
+st.subheader("🧬 Final Functional Annotation")
+
+final_annotation_table = pd.DataFrame([
+    {
+        "Field": "Final Protein Name",
+        "Result": final_annotation["final_name"]
+    },
+    {
+        "Field": "Predicted / Reported Function",
+        "Result": final_annotation["function"]
+    },
+    {
+        "Field": "Annotation Basis",
+        "Result": final_annotation["basis"]
+    },
+    {
+        "Field": "UniProt Annotation Score",
+        "Result": (
+            f"{uniprot_details['annotation_score']} / 5"
+            if uniprot_details["annotation_score"] != "Not available"
+            else "Not available"
+        )
+    },
+    {
+        "Field": "InterPro Domains / Families",
+        "Result": (
+            "; ".join(
+                item["name"]
+                for item in parsed_interpro_details
+                if item.get("name")
+                and item["name"] != "Not available"
+            )
+            if parsed_interpro_details
+            else "None found"
+        )
+    }
+])
+
+st.dataframe(
+    final_annotation_table,
+    use_container_width=True,
+    hide_index=True
+)
+
+# ------------------------------------------------------------
+# Evidence table combining NCBI, UniProt and InterPro
+# ------------------------------------------------------------
+
 annotation_rows = []
-
-
-# ------------------------------------------------------------
-# NCBI
-# ------------------------------------------------------------
 
 annotation_rows.append({
     "Source": "NCBI",
     "Record ID": selected_gene_id,
     "Annotation": description,
     "Organism": organism_name,
-    "Details": "Gene"
+    "Native Match / Score": "Not applicable",
+    "Matched Region": "—",
+    "Function / Evidence": "Gene-level annotation"
 })
 
-
-# ------------------------------------------------------------
-# RefSeq transcript
-# ------------------------------------------------------------
-
 if selected_record:
-
     annotation_rows.append({
         "Source": "RefSeq Transcript",
-        "Record ID": selected_record[
-            "accession"
-        ],
-        "Annotation": selected_record[
-            "title"
-        ],
+        "Record ID": selected_record["accession"],
+        "Annotation": selected_record["title"],
         "Organism": organism_name,
-        "Details": (
-            f"CDS: "
-            f"{cds_start}..{cds_end}; "
-            f"Length: "
-            f"{len(cds_sequence)} nt"
+        "Native Match / Score": "Not applicable",
+        "Matched Region": (
+            f"{cds_start}..{cds_end}"
             if cds_sequence
-            else "CDS not available"
-        )
+            else "Not available"
+        ),
+        "Function / Evidence": "RefSeq transcript / CDS"
     })
 
-
-# ------------------------------------------------------------
-# RefSeq protein
-# ------------------------------------------------------------
-
-final_protein_id = (
-    protein_id
-    if protein_id
-    else (
-        selected_protein_record[
-            "accession"
-        ]
-        if selected_protein_record
-        else None
-    )
-)
-
-
 if final_protein_id:
-
     annotation_rows.append({
         "Source": "RefSeq Protein",
         "Record ID": final_protein_id,
-        "Annotation": (
-            product
-            if product
-            else "RefSeq protein"
-        ),
+        "Annotation": product or "RefSeq protein",
         "Organism": organism_name,
-        "Details": (
-            f"Protein length: "
-            f"{len(protein_sequence)} aa"
+        "Native Match / Score": "Not applicable",
+        "Matched Region": "Full protein",
+        "Function / Evidence": (
+            f"Protein length: {len(protein_sequence)} aa"
             if protein_sequence
             else "Protein sequence available"
         )
     })
 
-
-# ------------------------------------------------------------
-# UniProt
-# ------------------------------------------------------------
-
 if uniprot_id:
-
     annotation_rows.append({
         "Source": "UniProt",
         "Record ID": uniprot_id,
-        "Annotation": (
-            uniprot_record.get(
-                "uniProtkbId",
-                "Not available"
-            )
-            if uniprot_record
-            else "Not available"
-        ),
+        "Annotation": uniprot_details["protein_name"],
         "Organism": organism_name,
-        "Details": (
-            f"Protein length: "
-            f"{len(uniprot_sequence)} aa; "
-            f"Sequence match: "
-            f"{'Yes' if sequences_match else 'No'}"
-        )
+        "Native Match / Score": (
+            f"Annotation Score: {uniprot_details['annotation_score']}/5"
+            if uniprot_details["annotation_score"] != "Not available"
+            else "Annotation Score: Not available"
+        ),
+        "Matched Region": "Full protein",
+        "Function / Evidence": uniprot_details["function"]
     })
-
 else:
-
     annotation_rows.append({
         "Source": "UniProt",
         "Record ID": "Not found",
         "Annotation": "Not available",
         "Organism": organism_name,
-        "Details": "No UniProt record found"
+        "Native Match / Score": "Not available",
+        "Matched Region": "—",
+        "Function / Evidence": "No UniProt record found"
     })
 
-
-# ------------------------------------------------------------
-# InterPro
-# ------------------------------------------------------------
-
-for result in interpro_results:
-
-    details = (
-        extract_interpro_details(
-            result
-        )
-    )
-
-    detail_text = details[
-        "type"
-    ]
-
-    if details[
-        "member_databases"
-    ]:
-
-        detail_text += (
-            "; Members: "
-            + ", ".join(
-                details[
-                    "member_databases"
-                ]
-            )
-        )
-
+for details in parsed_interpro_details:
     annotation_rows.append({
         "Source": "InterPro",
-        "Record ID": details[
-            "accession"
-        ],
-        "Annotation": details[
-            "name"
-        ],
+        "Record ID": details["accession"],
+        "Annotation": details["name"],
         "Organism": organism_name,
-        "Details": detail_text
+        "Native Match / Score": (
+            "; ".join(details["scores"])
+            if details["scores"]
+            else "Not provided by InterPro API"
+        ),
+        "Matched Region": (
+            "; ".join(details["locations"])
+            if details["locations"]
+            else "Not provided"
+        ),
+        "Function / Evidence": (
+            "; ".join(details["member_databases"])
+            if details["member_databases"]
+            else details["type"]
+        )
     })
-
 
 annotation_table = pd.DataFrame(
     annotation_rows
 )
 
-
+st.subheader("📋 Database Evidence Summary")
 st.dataframe(
     annotation_table,
     use_container_width=True,
     hide_index=True
 )
 
-
-# ============================================================
 # STEP 8 — DOWNLOADS
 # ============================================================
 
