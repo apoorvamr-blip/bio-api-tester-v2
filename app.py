@@ -614,6 +614,34 @@ def get_interpro_annotations(
 # UNIPROT / INTERPRO ANNOTATION PARSERS
 # ============================================================
 
+def interpret_uniprot_annotation_score(score):
+    """Return a user-friendly interpretation of UniProt's 1-5 annotation score.
+
+    UniProt defines the scale from 1 (basic annotation) to 5 (best annotated).
+    These are labels for the official scale, not invented percentage ranges.
+    """
+
+    if score in (None, "", "Not available"):
+        return "Not available"
+
+    try:
+        value = float(score)
+    except (TypeError, ValueError):
+        return "Not available"
+
+    rounded = int(round(value))
+
+    labels = {
+        1: "Basic annotation",
+        2: "Limited annotation",
+        3: "Moderate annotation",
+        4: "Well annotated",
+        5: "Best / highly annotated"
+    }
+
+    return labels.get(rounded, "See UniProt annotation-score scale")
+
+
 def get_uniprot_annotation_details(record):
     """Extract UniProt's own annotation/evidence fields."""
 
@@ -1720,12 +1748,34 @@ if uniprot_data:
                 f"{uniprot_match_details['evidence']}"
             )
 
-            st.write(
-                f"**UniProt Annotation Score:** "
-                f"{uniprot_details['annotation_score']} / 5"
-                if uniprot_details["annotation_score"] != "Not available"
-                else "**UniProt Annotation Score:** Not available"
-            )
+            if uniprot_details["annotation_score"] != "Not available":
+                score_text = (
+                    f"{uniprot_details['annotation_score']} / 5 "
+                    f"— {interpret_uniprot_annotation_score(uniprot_details['annotation_score'])}"
+                )
+                st.write(
+                    f"**UniProt Annotation Score:** {score_text}"
+                )
+
+                with st.expander("How to interpret the UniProt Annotation Score"):
+                    st.markdown(
+                        "**UniProt's 1–5 annotation-score scale:**\n\n"
+                        "- **1 / 5:** Basic annotation\n"
+                        "- **2 / 5:** Limited annotation\n"
+                        "- **3 / 5:** Moderate annotation\n"
+                        "- **4 / 5:** Well annotated\n"
+                        "- **5 / 5:** Best / highly annotated\n\n"
+                        "**Important:** This score measures the amount and type of "
+                        "annotation in the UniProtKB entry. It is **not** a sequence "
+                        "similarity score, confidence percentage, or probability that "
+                        "the functional annotation is correct. Experimental evidence "
+                        "contributes more strongly to the score than equivalent "
+                        "predicted annotation."
+                    )
+            else:
+                st.write(
+                    "**UniProt Annotation Score:** Not available"
+                )
 
             st.write(
                 f"**UniProt Protein Name:** "
@@ -2004,7 +2054,8 @@ final_annotation_table = pd.DataFrame([
     {
         "Field": "UniProt Annotation Score",
         "Result": (
-            f"{uniprot_details['annotation_score']} / 5"
+            f"{uniprot_details['annotation_score']} / 5 — "
+            f"{interpret_uniprot_annotation_score(uniprot_details['annotation_score'])}"
             if uniprot_details["annotation_score"] != "Not available"
             else "Not available"
         )
@@ -2083,7 +2134,8 @@ if uniprot_id:
         "Annotation": uniprot_details["protein_name"],
         "Organism": organism_name,
         "Native Match / Score": (
-            f"Annotation Score: {uniprot_details['annotation_score']}/5"
+            f"Annotation Score: {uniprot_details['annotation_score']}/5 — "
+            f"{interpret_uniprot_annotation_score(uniprot_details['annotation_score'])}"
             if uniprot_details["annotation_score"] != "Not available"
             else "Annotation Score: Not available"
         ),
