@@ -748,31 +748,79 @@ def _recursive_find_values(obj, target_keys):
 
 
 def _format_interpro_locations(result):
-    """Extract InterPro matched amino-acid regions when present."""
-
-    locations = _recursive_find_values(
-        result,
-        {"location", "locations", "fragments"}
-    )
+    """Extract InterPro matched amino-acid regions from the protein-location objects."""
 
     formatted = []
 
-    def walk(value):
-        if isinstance(value, dict):
-            start = value.get("start")
-            end = value.get("end")
+    def walk(obj):
+        if isinstance(obj, dict):
+            # Current InterPro API responses commonly store matches as:
+            # proteins -> entry_protein_locations -> fragments -> start/end
+            fragments = obj.get("fragments")
+            if isinstance(fragments, list):
+                for fragment in fragments:
+                    if not isinstance(fragment, dict):
+                        continue
+                    start = fragment.get("start")
+                    end = fragment.get("end")
+                    if start is not None and end is not None:
+                        formatted.append(f"{start}–{end} aa")
+
+            # Also support responses where start/end are directly on the
+            # location object.
+            start = obj.get("start")
+            end = obj.get("end")
             if start is not None and end is not None:
                 formatted.append(f"{start}–{end} aa")
-            for child in value.values():
-                walk(child)
-        elif isinstance(value, list):
-            for child in value:
-                walk(child)
 
-    for location in locations:
-        walk(location)
+            for value in obj.values():
+                walk(value)
 
+        elif isinstance(obj, list):
+            for item in obj:
+                walk(item)
+
+    walk(result)
     return list(dict.fromkeys(formatted))
+
+
+def get_uniprot_sequence_match_details(query_sequence, uniprot_sequence):
+    """Return a clear, explicitly computed sequence-match summary."""
+
+    if not query_sequence or not uniprot_sequence:
+        return {
+            "region": "Not available",
+            "identity": "Not available",
+            "evidence": "Sequence comparison could not be performed."
+        }
+
+    query_length = len(query_sequence)
+    uniprot_length = len(uniprot_sequence)
+
+    if query_sequence == uniprot_sequence:
+        return {
+            "region": f"1–{query_length} aa (full length)",
+            "identity": f"100% ({query_length}/{uniprot_length} aa)",
+            "evidence": "Exact sequence identity between the translated protein and the UniProt canonical sequence."
+        }
+
+    # For non-identical sequences, report the common prefix/suffix only when
+    # they are exact. This avoids inventing an alignment score.
+    prefix = 0
+    max_prefix = min(query_length, uniprot_length)
+    while prefix < max_prefix and query_sequence[prefix] == uniprot_sequence[prefix]:
+        prefix += 1
+
+    if prefix > 0:
+        region = f"1–{prefix} aa (exact matching prefix)"
+    else:
+        region = "No exact matching prefix"
+
+    return {
+        "region": region,
+        "identity": "Not calculated",
+        "evidence": "Sequences differ; no percentage identity was inferred without a formal alignment."
+    }
 
 
 def _format_interpro_scores(result):
@@ -1499,6 +1547,12 @@ uniprot_details = {
     "evidence": []
 }
 
+uniprot_match_details = {
+    "region": "Not available",
+    "identity": "Not available",
+    "evidence": "Sequence comparison could not be performed."
+}
+
 
 # ------------------------------------------------------------
 # Search by locus tag first
@@ -1607,6 +1661,11 @@ if uniprot_data:
                     == uniprot_sequence
                 )
 
+                uniprot_match_details = get_uniprot_sequence_match_details(
+                    protein_sequence,
+                    uniprot_sequence
+                )
+
             col1, col2, col3 = (
                 st.columns(3)
             )
@@ -1645,6 +1704,21 @@ if uniprot_data:
                     st.warning(
                         "Protein sequences are not identical."
                     )
+
+            st.write(
+                f"**UniProt Matched Region (computed):** "
+                f"{uniprot_match_details['region']}"
+            )
+
+            st.write(
+                f"**UniProt Sequence Match:** "
+                f"{uniprot_match_details['identity']}"
+            )
+
+            st.write(
+                f"**UniProt Match Evidence:** "
+                f"{uniprot_match_details['evidence']}"
+            )
 
             st.write(
                 f"**UniProt Annotation Score:** "
@@ -1887,6 +1961,17 @@ else:
 # STEP 7 — FINAL ANNOTATION TABLE
 # ============================================================
 
+# Use the protein ID parsed from GenBank when available; otherwise use the
+# linked RefSeq protein record. This prevents an undefined-variable error.
+final_protein_id = (
+    protein_id
+    or (
+        selected_protein_record["accession"]
+        if selected_protein_record
+        else None
+    )
+)
+
 st.header(
     "7️⃣ Final Annotation Table"
 )
@@ -2002,8 +2087,12 @@ if uniprot_id:
             if uniprot_details["annotation_score"] != "Not available"
             else "Annotation Score: Not available"
         ),
-        "Matched Region": "Full protein",
-        "Function / Evidence": uniprot_details["function"]
+        "Matched Region": uniprot_match_details["region"],
+        "Function / Evidence": (
+            uniprot_details["function"]
+            + " | "
+            + uniprot_match_details["evidence"]
+        )
     })
 else:
     annotation_rows.append({
